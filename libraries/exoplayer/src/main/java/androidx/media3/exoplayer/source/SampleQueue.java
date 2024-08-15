@@ -615,9 +615,11 @@ public class SampleQueue implements TrackOutput {
       int size,
       int offset,
       @Nullable CryptoData cryptoData) {
-    if (upstreamFormatAdjustmentRequired) {
-      format(Assertions.checkStateNotNull(unadjustedUpstreamFormat));
-    }
+
+    // TODO: 暂时删除，待完善
+//    if (upstreamFormatAdjustmentRequired) {
+//      format(Assertions.checkStateNotNull(unadjustedUpstreamFormat));
+//    }
 
     boolean isKeyframe = (flags & C.BUFFER_FLAG_KEY_FRAME) != 0;
     if (upstreamKeyframeRequired) {
