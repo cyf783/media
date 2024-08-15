@@ -393,6 +393,10 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
     @Nullable String rangeHeader = buildRangeRequestHeader(position, length);
     if (rangeHeader != null) {
       builder.addHeader(HttpHeaders.RANGE, rangeHeader);
+    //TODO 支持荐片 -- start
+    }else{
+      builder.addHeader(HttpHeaders.RANGE, "bytes=0-");
+    //TODO 支持荐片 -- end
     }
     if (userAgent != null) {
       builder.addHeader(HttpHeaders.USER_AGENT, userAgent);
