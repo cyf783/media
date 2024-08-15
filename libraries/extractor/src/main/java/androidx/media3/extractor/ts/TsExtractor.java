@@ -353,6 +353,14 @@ public final class TsExtractor implements Extractor {
   @Override
   public boolean sniff(ExtractorInput input) throws IOException {
     byte[] buffer = tsPacketBuffer.getData();
+    //  支持小苹果 -- start
+    input.peekFully(buffer, 0, TS_PACKET_SIZE*2);
+    for (int i = 0; i < TS_PACKET_SIZE*2; i++) {
+      if (buffer[i] == TS_SYNC_BYTE && buffer[i + 1] == 0x40 && i > 0) {
+        input.skipFully(i);
+      }
+    }
+    //  支持小苹果 -- end
     input.peekFully(buffer, 0, TS_PACKET_SIZE * SNIFF_TS_PACKET_COUNT);
     for (int startPosCandidate = 0; startPosCandidate < TS_PACKET_SIZE; startPosCandidate++) {
       // Try to identify at least SNIFF_TS_PACKET_COUNT packets starting with TS_SYNC_BYTE.
