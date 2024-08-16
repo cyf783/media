@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer.hls.playlist;
 
+import static androidx.media3.common.MediaLibraryInfo.TAG;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
 import static java.lang.Math.max;
@@ -26,6 +27,7 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
@@ -222,6 +224,12 @@ public final class DefaultHlsPlaylistTracker
 
   @Override
   public void maybeThrowPlaylistRefreshError(Uri url) throws IOException {
+    //TODO 来自海阔的：修复真不卡等网站播放中断的问题 ---start
+    if (!isLive) {
+      Log.e(TAG, "maybeThrowPlaylistRefreshError: ");
+      return;
+    }
+    //TODO 来自海阔的：修复真不卡等网站播放中断的问题 ---end
     playlistBundles.get(url).maybeThrowPlaylistRefreshError();
   }
 
