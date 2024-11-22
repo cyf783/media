@@ -514,14 +514,22 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
       readLength = (int) min(readLength, bytesRemaining);
     }
 
-    int read = castNonNull(responseByteStream).read(buffer, offset, readLength);
-    if (read == -1) {
+    //TODO GO代理时可能出现计算异常 -- start1
+    try {
+    //TODO GO代理时可能出现计算异常 -- end1
+      int read = castNonNull(responseByteStream).read(buffer, offset, readLength);
+      if (read == -1) {
+        return C.RESULT_END_OF_INPUT;
+      }
+
+      bytesRead += read;
+      bytesTransferred(read);
+      return read;
+    //TODO GO代理时可能出现计算异常 -- start2
+    }catch (Exception e){
       return C.RESULT_END_OF_INPUT;
     }
-
-    bytesRead += read;
-    bytesTransferred(read);
-    return read;
+    //TODO GO代理时可能出现计算异常 -- end2
   }
 
   /** Closes the current connection quietly, if there is one. */
