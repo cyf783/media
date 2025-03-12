@@ -18,8 +18,6 @@ package androidx.media3.muxer;
 import static androidx.media3.common.util.Assertions.checkArgument;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.muxer.ColorUtils.MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX;
-import static androidx.media3.muxer.ColorUtils.MEDIAFORMAT_TRANSFER_TO_MP4_TRANSFER;
 import static androidx.media3.muxer.MuxerUtil.UNSIGNED_INT_MAX_VALUE;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
@@ -767,12 +765,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
     contents.put(paspBox());
 
-    // Put in a "colr" box if any of the three color format parameters has a non-default (0) value.
-    // TODO: b/278101856 - Only null check should be enough once we disallow invalid values.
-    if (format.colorInfo != null
-        && (format.colorInfo.colorSpace != 0
-            || format.colorInfo.colorTransfer != 0
-            || format.colorInfo.colorRange != 0)) {
+    if (format.colorInfo != null) {
       contents.put(colrBox(format.colorInfo));
     }
 
@@ -1360,13 +1353,14 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns the avcC box as per ISO/IEC 14496-15: 5.3.3.1.2. */
   private static ByteBuffer avcCBox(Format format) {
     checkArgument(
-        format.initializationData.size() >= 2, "csd-0 and/or csd-1 not found in the format.");
+        format.initializationData.size() >= 2,
+        "csd-0 and/or csd-1 not found in the format for avcC box.");
 
     byte[] csd0 = format.initializationData.get(0);
-    checkArgument(csd0.length > 0, "csd-0 is empty.");
+    checkArgument(csd0.length > 0, "csd-0 is empty for avcC box.");
 
     byte[] csd1 = format.initializationData.get(1);
-    checkArgument(csd1.length > 0, "csd-1 is empty.");
+    checkArgument(csd1.length > 0, "csd-1 is empty for avcC box.");
 
     ByteBuffer csd0ByteBuffer = ByteBuffer.wrap(csd0);
     ByteBuffer csd1ByteBuffer = ByteBuffer.wrap(csd1);
@@ -1378,7 +1372,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     contents.put((byte) 0x01); // configurationVersion
 
     ImmutableList<ByteBuffer> csd0NalUnits = AnnexBUtils.findNalUnits(csd0ByteBuffer);
-    checkArgument(csd0NalUnits.size() == 1, "SPS data not found in csd0.");
+    checkArgument(csd0NalUnits.size() == 1, "SPS data not found in csd0 for avcC box.");
 
     ByteBuffer sps = csd0NalUnits.get(0);
     byte[] spsData = new byte[sps.remaining()];
@@ -1414,10 +1408,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns the hvcC box as per ISO/IEC 14496-15: 8.3.3.1.2. */
   private static ByteBuffer hvcCBox(Format format) {
     // For H.265, all three codec-specific NALUs (VPS, SPS, PPS) are packed into csd-0.
-    checkArgument(!format.initializationData.isEmpty(), "csd-0 not found in the format.");
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 not found in the format for hvcC box.");
 
     byte[] csd0 = format.initializationData.get(0);
-    checkArgument(csd0.length > 0, "csd-0 is empty.");
+    checkArgument(csd0.length > 0, "csd-0 is empty for hvcC box.");
 
     ByteBuffer csd0ByteBuffer = ByteBuffer.wrap(csd0);
 
@@ -1507,10 +1502,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns the av1C box. */
   private static ByteBuffer av1CBox(Format format) {
     // For AV1, the entire codec-specific box is packed into csd-0.
-    checkArgument(!format.initializationData.isEmpty(), "csd-0 is not found in the format");
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 is not found in the format for av1C box");
 
     byte[] csd0 = format.initializationData.get(0);
-    checkArgument(csd0.length > 0, "csd-0 is empty.");
+    checkArgument(csd0.length > 0, "csd-0 is empty for av1C box.");
 
     return BoxUtils.wrapIntoBox("av1C", ByteBuffer.wrap(csd0));
   }
@@ -1518,7 +1514,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns the vpcC box as per VP Codec ISO Media File Format Binding v1.0. */
   private static ByteBuffer vpcCBox(Format format) {
     // For VP9, the CodecPrivate or vpcCBox data is packed into csd-0.
-    checkArgument(!format.initializationData.isEmpty(), "csd-0 is not found in the format");
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 is not found in the format for vpcC box");
     byte[] csd0 = format.initializationData.get(0);
     checkArgument(csd0.length > 3, "csd-0 for vp9 is invalid.");
     int versionAndFlags = 1 << 24; // version (value 1, 8 bits) + flag (value 0, 24 bits)
@@ -1540,24 +1537,18 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
     // The default values for optional fields as per the : <a
     // href="https://www.webmproject.org/vp9/mp4/#optional-fields">Vp9 webm spec</a>
-    int colourPrimaries = 1;
+    int colorPrimaries = 1;
     int transferCharacteristics = 1;
     int matrixCoefficients = 1;
 
     if (format.colorInfo != null) {
-      ColorInfo colorInfo = format.colorInfo;
-      if (colorInfo.colorSpace != Format.NO_VALUE) {
-        colourPrimaries =
-            MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX.get(colorInfo.colorSpace).get(0);
-        matrixCoefficients =
-            MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX.get(colorInfo.colorSpace).get(1);
-      }
-      if (colorInfo.colorTransfer != Format.NO_VALUE) {
-        transferCharacteristics = MEDIAFORMAT_TRANSFER_TO_MP4_TRANSFER.get(colorInfo.colorTransfer);
-      }
+      colorPrimaries = ColorInfo.colorSpaceToIsoColorPrimaries(format.colorInfo.colorSpace);
+      transferCharacteristics =
+          ColorInfo.colorTransferToIsoTransferCharacteristics(format.colorInfo.colorTransfer);
+      matrixCoefficients = ColorInfo.colorSpaceToIsoMatrixCoefficients(format.colorInfo.colorSpace);
     }
 
-    contents.put((byte) colourPrimaries);
+    contents.put((byte) colorPrimaries);
     contents.put((byte) transferCharacteristics);
     contents.put((byte) matrixCoefficients);
     contents.putShort((short) 0); // codecInitializationDataSize must be 0 for VP9
@@ -1648,40 +1639,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     contents.put((byte) 'l');
     contents.put((byte) 'x');
 
-    short primaries = 0;
-    short transfer = 0;
-    short matrix = 0;
-    byte range = 0;
-
-    if (colorInfo.colorSpace != Format.NO_VALUE) {
-      int standard = colorInfo.colorSpace;
-      if (standard < 0 || standard >= MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX.size()) {
-        throw new IllegalArgumentException("Color standard not implemented: " + standard);
-      }
-
-      primaries = MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX.get(standard).get(0);
-      matrix = MEDIAFORMAT_STANDARD_TO_PRIMARIES_AND_MATRIX.get(standard).get(1);
-    }
-
-    if (colorInfo.colorTransfer != Format.NO_VALUE) {
-      int transferInFormat = colorInfo.colorTransfer;
-      if (transferInFormat < 0 || transferInFormat >= MEDIAFORMAT_TRANSFER_TO_MP4_TRANSFER.size()) {
-        throw new IllegalArgumentException("Color transfer not implemented: " + transferInFormat);
-      }
-
-      transfer = MEDIAFORMAT_TRANSFER_TO_MP4_TRANSFER.get(transferInFormat);
-    }
-
-    if (colorInfo.colorRange != Format.NO_VALUE) {
-      int rangeInFormat = colorInfo.colorRange;
-      // Handled values are 0 (unknown), 1 (full) and 2 (limited).
-      if (rangeInFormat < 0 || rangeInFormat > 2) {
-        throw new IllegalArgumentException("Color range not implemented: " + rangeInFormat);
-      }
-
-      // Set this to 0x80 only for full range, 0 otherwise.
-      range = rangeInFormat == C.COLOR_RANGE_FULL ? (byte) 0x80 : 0;
-    }
+    short primaries = (short) ColorInfo.colorSpaceToIsoColorPrimaries(colorInfo.colorSpace);
+    short transfer =
+        (short) ColorInfo.colorTransferToIsoTransferCharacteristics(colorInfo.colorTransfer);
+    short matrix = (short) ColorInfo.colorSpaceToIsoMatrixCoefficients(colorInfo.colorSpace);
+    byte range = colorInfo.colorRange == C.COLOR_RANGE_FULL ? (byte) 0x80 : 0;
 
     contents.putShort(primaries);
     contents.putShort(transfer);
@@ -1724,10 +1686,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
   /** Returns the esds box. */
   private static ByteBuffer esdsBox(Format format) {
-    checkArgument(!format.initializationData.isEmpty(), "csd-0 not found in the format.");
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 not found in the format for esds box.");
 
     byte[] csd0 = format.initializationData.get(0);
-    checkArgument(csd0.length > 0, "csd-0 is empty.");
+    checkArgument(csd0.length > 0, "csd-0 is empty for esds box.");
 
     String mimeType = checkNotNull(format.sampleMimeType);
     boolean isVorbis = mimeType.equals(MimeTypes.AUDIO_VORBIS);
@@ -1847,7 +1810,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
 
   /** Returns the audio dOps box for Opus codec as per RFC-7845: 5.1. */
   private static ByteBuffer dOpsBox(Format format) {
-    checkArgument(!format.initializationData.isEmpty());
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 not found in the format for dOps box.");
 
     int opusHeaderLength = 8;
     byte[] csd0 = format.initializationData.get(0);

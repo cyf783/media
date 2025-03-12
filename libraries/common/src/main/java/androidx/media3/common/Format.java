@@ -16,6 +16,7 @@
 package androidx.media3.common;
 
 import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.math.DoubleMath.fuzzyEquals;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.os.Bundle;
@@ -749,7 +750,7 @@ public final class Format {
     /**
      * Sets {@link Format#tileCountHorizontal}. The default value is {@link #NO_VALUE}.
      *
-     * @param tileCountHorizontal The {@link Format#accessibilityChannel}.
+     * @param tileCountHorizontal The {@link Format#tileCountHorizontal}.
      * @return The builder.
      */
     @CanIgnoreReturnValue
@@ -761,7 +762,7 @@ public final class Format {
     /**
      * Sets {@link Format#tileCountVertical}. The default value is {@link #NO_VALUE}.
      *
-     * @param tileCountVertical The {@link Format#accessibilityChannel}.
+     * @param tileCountVertical The {@link Format#tileCountVertical}.
      * @return The builder.
      */
     @CanIgnoreReturnValue
@@ -1441,6 +1442,9 @@ public final class Format {
     }
     if (format.width != NO_VALUE && format.height != NO_VALUE) {
       builder.append(", res=").append(format.width).append("x").append(format.height);
+    }
+    if (!fuzzyEquals(format.pixelWidthHeightRatio, 1, 0.001)) {
+      builder.append(", par=").append(Util.formatInvariant("%.3f", format.pixelWidthHeightRatio));
     }
     if (format.colorInfo != null && format.colorInfo.isValid()) {
       builder.append(", color=").append(format.colorInfo.toLogString());
