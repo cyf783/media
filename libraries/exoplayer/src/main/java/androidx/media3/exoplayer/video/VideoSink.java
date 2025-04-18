@@ -18,7 +18,6 @@ package androidx.media3.exoplayer.video;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.graphics.Bitmap;
-import android.os.SystemClock;
 import android.view.Surface;
 import androidx.annotation.FloatRange;
 import androidx.annotation.IntDef;
@@ -150,9 +149,10 @@ public interface VideoSink {
    * Initializes the video sink.
    *
    * @param sourceFormat The format of the first input video or image.
+   * @return Whether initialization succeeded. If {@code false}, the caller should try again later.
    * @throws VideoSink.VideoSinkException If initializing the sink failed.
    */
-  void initialize(Format sourceFormat) throws VideoSinkException;
+  boolean initialize(Format sourceFormat) throws VideoSinkException;
 
   /** Returns whether the video sink is {@linkplain #initialize(Format) initialized}. */
   boolean isInitialized();
@@ -177,7 +177,21 @@ public interface VideoSink {
    */
   boolean isReady(boolean rendererOtherwiseReady);
 
-  /** Returns whether all the data has been rendered to the output surface. */
+  /** Signals the end of the current input stream. */
+  void signalEndOfCurrentInputStream();
+
+  /** Signals the end of the last input stream. */
+  void signalEndOfInput();
+
+  /**
+   * Returns whether all the data has been rendered to the output surface.
+   *
+   * <p>This method returns {@code true} if the end of the last input stream has been {@linkplain
+   * #signalEndOfCurrentInputStream() signaled} and all the input frames have been rendered. Note
+   * that a new input stream can be {@linkplain #onInputStreamChanged(int, Format, List<Effect>)
+   * signaled} even when this method returns true (in which case the sink will not be ended
+   * anymore).
+   */
   boolean isEnded();
 
   /**
@@ -197,27 +211,14 @@ public interface VideoSink {
   void setVideoEffects(List<Effect> videoEffects);
 
   /**
-   * Sets {@linkplain Effect video effects} to apply after the next stream {@linkplain
-   * VideoSink#onInputStreamChanged(int, Format) change}.
-   */
-  void setPendingVideoEffects(List<Effect> videoEffects);
-
-  /**
    * Sets information about the timestamps of the current input stream.
    *
    * @param streamStartPositionUs The start position of the buffer presentation timestamps of the
    *     current stream, in microseconds.
-   * @param streamOffsetUs The offset that is added to the buffer presentation timestamps by the
-   *     player, in microseconds.
    * @param bufferTimestampAdjustmentUs The timestamp adjustment to add to the buffer presentation
    *     timestamps to convert them to frame presentation timestamps, in microseconds.
-   * @param lastResetPositionUs The renderer last reset position, in microseconds.
    */
-  void setStreamTimestampInfo(
-      long streamStartPositionUs,
-      long streamOffsetUs,
-      long bufferTimestampAdjustmentUs,
-      long lastResetPositionUs);
+  void setStreamTimestampInfo(long streamStartPositionUs, long bufferTimestampAdjustmentUs);
 
   /** Sets the output surface info. */
   void setOutputSurfaceInfo(Surface outputSurface, Size outputResolution);
@@ -243,43 +244,38 @@ public interface VideoSink {
   void enableMayRenderStartOfStream();
 
   /**
-   * Informs the video sink that a new input stream will be queued.
+   * Informs the video sink that a new input stream will be queued with the given effects.
    *
    * <p>Must be called after the sink is {@linkplain #initialize(Format) initialized}.
    *
    * @param inputType The {@link InputType} of the stream.
    * @param format The {@link Format} of the stream.
+   * @param videoEffects The {@link List<Effect>} to apply to the new stream.
    */
-  void onInputStreamChanged(@InputType int inputType, Format format);
+  void onInputStreamChanged(@InputType int inputType, Format format, List<Effect> videoEffects);
 
   /**
    * Handles a video input frame.
    *
    * <p>Must be called after the corresponding stream is {@linkplain #onInputStreamChanged(int,
-   * Format) signalled}.
+   * Format, List<Effect>) signaled}.
    *
    * @param framePresentationTimeUs The frame's presentation time, in microseconds.
-   * @param isLastFrame Whether this is the last frame of the video stream.
-   * @param positionUs The current playback position, in microseconds.
-   * @param elapsedRealtimeUs {@link SystemClock#elapsedRealtime()} in microseconds, taken
-   *     approximately at the time the playback position was {@code positionUs}.
+   * @param isLastFrame Whether this is the last frame of the video stream. This flag is set on a
+   *     best effort basis, and any logic relying on it should degrade gracefully to handle cases
+   *     where it's not set.
    * @param videoFrameHandler The {@link VideoFrameHandler} used to handle the input frame.
    * @return Whether the frame was handled successfully. If {@code false}, the caller can try again
    *     later.
    */
   boolean handleInputFrame(
-      long framePresentationTimeUs,
-      boolean isLastFrame,
-      long positionUs,
-      long elapsedRealtimeUs,
-      VideoFrameHandler videoFrameHandler)
-      throws VideoSinkException;
+      long framePresentationTimeUs, boolean isLastFrame, VideoFrameHandler videoFrameHandler);
 
   /**
    * Handles an input {@link Bitmap}.
    *
    * <p>Must be called after the corresponding stream is {@linkplain #onInputStreamChanged(int,
-   * Format) signalled}.
+   * Format, List<Effect>) signaled}.
    *
    * @param inputBitmap The {@link Bitmap} to queue to the video sink.
    * @param timestampIterator The times within the current stream that the bitmap should be shown
@@ -298,6 +294,9 @@ public interface VideoSink {
    * @throws VideoSinkException If an error occurs during rendering.
    */
   void render(long positionUs, long elapsedRealtimeUs) throws VideoSinkException;
+
+  /** Sets a {@link Renderer.WakeupListener} on the {@code VideoSink}. */
+  void setWakeupListener(Renderer.WakeupListener wakeupListener);
 
   /**
    * Joins the video sink to a new stream.

@@ -15,7 +15,8 @@
  */
 package androidx.media3.transformer;
 
-import static androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED;
+import static androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED;
+import static androidx.media3.common.util.Util.isRunningOnEmulator;
 import static androidx.media3.transformer.AndroidTestUtil.JPG_SINGLE_PIXEL_ASSET;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET;
 import static com.google.common.truth.Truth.assertThat;
@@ -40,6 +41,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PreviewingVideoGraph;
 import androidx.media3.common.SurfaceInfo;
+import androidx.media3.common.VideoCompositorSettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.VideoGraph;
@@ -54,7 +56,9 @@ import androidx.media3.exoplayer.RendererCapabilities;
 import androidx.media3.exoplayer.image.BitmapFactoryImageDecoder;
 import androidx.media3.exoplayer.image.ImageDecoder;
 import androidx.media3.exoplayer.image.ImageDecoderException;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.ExternalLoader;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.test.utils.TestSpeedProvider;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
@@ -75,7 +79,7 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class CompositionPlayerTest {
 
-  private static final long TEST_TIMEOUT_MS = 10_000;
+  private static final long TEST_TIMEOUT_MS = isRunningOnEmulator() ? 20_000 : 10_000;
 
   @Rule
   public ActivityScenarioRule<SurfaceTestActivity> rule =
@@ -127,7 +131,7 @@ public class CompositionPlayerTest {
               new Composition.Builder(
                       new EditedMediaItemSequence.Builder(
                               new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-                                  .setDurationUs(1_000_000)
+                                  .setDurationUs(MP4_ASSET.videoDurationUs)
                                   .build())
                           .build())
                   .build());
@@ -148,7 +152,7 @@ public class CompositionPlayerTest {
               new Composition.Builder(
                       new EditedMediaItemSequence.Builder(
                               new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-                                  .setDurationUs(1_000_000)
+                                  .setDurationUs(MP4_ASSET.videoDurationUs)
                                   .build())
                           .build())
                   .build());
@@ -173,7 +177,7 @@ public class CompositionPlayerTest {
               new Composition.Builder(
                       new EditedMediaItemSequence.Builder(
                               new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-                                  .setDurationUs(1_000_000)
+                                  .setDurationUs(MP4_ASSET.videoDurationUs)
                                   .build())
                           .build())
                   .build());
@@ -196,7 +200,7 @@ public class CompositionPlayerTest {
               new Composition.Builder(
                       new EditedMediaItemSequence.Builder(
                               new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-                                  .setDurationUs(1_000_000)
+                                  .setDurationUs(MP4_ASSET.videoDurationUs)
                                   .build())
                           .build())
                   .build());
@@ -243,6 +247,7 @@ public class CompositionPlayerTest {
                                           .setUri(JPG_SINGLE_PIXEL_ASSET.uri)
                                           .setImageDurationMs(1_000)
                                           .build())
+                                  .setFrameRate(30)
                                   .build())
                           .build())
                   .build());
@@ -256,7 +261,9 @@ public class CompositionPlayerTest {
     listener.waitUntilPlayerEnded();
     long playbackRealTimeMs = SystemClock.DEFAULT.elapsedRealtime() - playbackStartTimeMs;
 
-    assertThat(playbackRealTimeMs).isAtLeast(1_000);
+    // Video frames are not rendered exactly at the time corresponding to their presentation
+    // timestamp, and the differences accumulate.
+    assertThat(playbackRealTimeMs).isAtLeast(900);
   }
 
   @Test
@@ -264,12 +271,15 @@ public class CompositionPlayerTest {
     PlayerTestListener listener = new PlayerTestListener(TEST_TIMEOUT_MS);
     ExternalLoader externalImageLoader =
         loadRequest -> immediateFuture(Util.getUtf8Bytes(loadRequest.uri.toString()));
+    MediaSource.Factory mediaSourceFactory =
+        new DefaultMediaSourceFactory(applicationContext)
+            .setExternalImageLoader(externalImageLoader);
 
     instrumentation.runOnMainSync(
         () -> {
           compositionPlayer =
               new CompositionPlayer.Builder(applicationContext)
-                  .setExternalImageLoader(externalImageLoader)
+                  .setMediaSourceFactory(mediaSourceFactory)
                   .setImageDecoderFactory(new TestImageDecoderFactory())
                   .build();
           // Set a surface on the player even though there is no UI on this test. We need a surface
@@ -336,7 +346,7 @@ public class CompositionPlayerTest {
 
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .build();
 
     instrumentation.runOnMainSync(
@@ -361,7 +371,7 @@ public class CompositionPlayerTest {
     PlayerTestListener listener = new PlayerTestListener(TEST_TIMEOUT_MS);
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .build();
     EditedMediaItem image =
         new EditedMediaItem.Builder(
@@ -396,7 +406,7 @@ public class CompositionPlayerTest {
             TestSpeedProvider.createWithStartTimes(new long[] {0}, new float[] {2f}));
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .setEffects(
                 new Effects(ImmutableList.of(effects.first), ImmutableList.of(effects.second)))
             .build();
@@ -425,7 +435,7 @@ public class CompositionPlayerTest {
             TestSpeedProvider.createWithStartTimes(new long[] {0}, new float[] {0.5f}));
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .setEffects(
                 new Effects(ImmutableList.of(effects.first), ImmutableList.of(effects.second)))
             .build();
@@ -451,7 +461,7 @@ public class CompositionPlayerTest {
     PlayerTestListener listener = new PlayerTestListener(TEST_TIMEOUT_MS);
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .build();
 
     instrumentation.runOnMainSync(
@@ -459,15 +469,26 @@ public class CompositionPlayerTest {
           compositionPlayer =
               new CompositionPlayer.Builder(applicationContext)
                   .setPreviewingVideoGraphFactory(
-                      (context,
-                          outputColorInfo,
-                          debugViewProvider,
-                          graphListener,
-                          listenerExecutor,
-                          compositionEffects,
-                          initialTimestampOffsetUs) -> {
-                        throw new VideoFrameProcessingException(
-                            "Test video graph failed to initialize");
+                      new PreviewingVideoGraph.Factory() {
+                        @Override
+                        public PreviewingVideoGraph create(
+                            Context context,
+                            ColorInfo outputColorInfo,
+                            DebugViewProvider debugViewProvider,
+                            VideoGraph.Listener listener,
+                            Executor listenerExecutor,
+                            VideoCompositorSettings videoCompositorSettings,
+                            List<Effect> compositionEffects,
+                            long initialTimestampOffsetUs)
+                            throws VideoFrameProcessingException {
+                          throw new VideoFrameProcessingException(
+                              "Test video graph failed to initialize");
+                        }
+
+                        @Override
+                        public boolean supportsMultipleInputs() {
+                          return false;
+                        }
                       })
                   .build();
           compositionPlayer.addListener(listener);
@@ -479,7 +500,7 @@ public class CompositionPlayerTest {
 
     PlaybackException thrownException =
         assertThrows(PlaybackException.class, listener::waitUntilPlayerEnded);
-    assertThat(thrownException.errorCode).isEqualTo(ERROR_CODE_DECODER_INIT_FAILED);
+    assertThat(thrownException.errorCode).isEqualTo(ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED);
   }
 
   @Test
@@ -488,13 +509,13 @@ public class CompositionPlayerTest {
     PlayerTestListener playerTestListener = new PlayerTestListener(TEST_TIMEOUT_MS);
     EditedMediaItem video =
         new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
-            .setDurationUs(1_000_000)
+            .setDurationUs(MP4_ASSET.videoDurationUs)
             .build();
     instrumentation.runOnMainSync(
         () -> {
           compositionPlayer =
               new CompositionPlayer.Builder(applicationContext)
-                  .setPreviewingVideoGraphFactory(FailingReleaseVideoGraph::new)
+                  .setPreviewingVideoGraphFactory(new FailingReleaseVideoGraph.Factory())
                   .build();
           compositionPlayer.addListener(playerTestListener);
           compositionPlayer.setComposition(
@@ -506,8 +527,6 @@ public class CompositionPlayerTest {
     playerTestListener.waitUntilPlayerEnded();
 
     instrumentation.runOnMainSync(compositionPlayer::release);
-
-    playerTestListener.waitUntilPlayerIdle();
   }
 
   private static final class TestImageDecoderFactory implements ImageDecoder.Factory {
@@ -541,12 +560,43 @@ public class CompositionPlayerTest {
   }
 
   private static final class FailingReleaseVideoGraph extends ForwardingVideoGraph {
-    public FailingReleaseVideoGraph(
+    public static final class Factory implements PreviewingVideoGraph.Factory {
+
+      @Override
+      public PreviewingVideoGraph create(
+          Context context,
+          ColorInfo outputColorInfo,
+          DebugViewProvider debugViewProvider,
+          Listener listener,
+          Executor listenerExecutor,
+          VideoCompositorSettings videoCompositorSettings,
+          List<Effect> compositionEffects,
+          long initialTimestampOffsetUs)
+          throws VideoFrameProcessingException {
+        return new FailingReleaseVideoGraph(
+            context,
+            outputColorInfo,
+            debugViewProvider,
+            listener,
+            listenerExecutor,
+            videoCompositorSettings,
+            compositionEffects,
+            initialTimestampOffsetUs);
+      }
+
+      @Override
+      public boolean supportsMultipleInputs() {
+        return false;
+      }
+    }
+
+    private FailingReleaseVideoGraph(
         Context context,
         ColorInfo outputColorInfo,
         DebugViewProvider debugViewProvider,
         VideoGraph.Listener listener,
         Executor listenerExecutor,
+        VideoCompositorSettings videoCompositorSettings,
         List<Effect> compositionEffects,
         long initialTimestampOffsetUs) {
       super(
@@ -557,6 +607,7 @@ public class CompositionPlayerTest {
                   debugViewProvider,
                   listener,
                   listenerExecutor,
+                  videoCompositorSettings,
                   compositionEffects,
                   initialTimestampOffsetUs));
     }

@@ -30,7 +30,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
-import androidx.media3.common.FrameInfo;
+import androidx.media3.common.Format;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.ConditionVariable;
@@ -43,16 +43,15 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.List;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -90,8 +89,8 @@ public class DefaultVideoFrameProcessorTest {
               @Override
               public void onInputStreamRegistered(
                   @VideoFrameProcessor.InputType int inputType,
-                  List<Effect> effects,
-                  FrameInfo frameInfo) {
+                  Format format,
+                  List<Effect> effects) {
                 inputStreamRegisteredCountDownLatch.countDown();
               }
 
@@ -115,9 +114,13 @@ public class DefaultVideoFrameProcessorTest {
             });
     defaultVideoFrameProcessor.registerInputStream(
         VideoFrameProcessor.INPUT_TYPE_BITMAP,
+        new Format.Builder()
+            .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+            .setWidth(100)
+            .setHeight(100)
+            .build(),
         ImmutableList.of(),
-        new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, /* width= */ 100, /* height= */ 100)
-            .build());
+        /* offsetToAddUs= */ 0);
 
     assertThat(defaultVideoFrameProcessor.getPendingInputFrameCount()).isEqualTo(0);
     // Unblocks configuration.
@@ -141,10 +144,10 @@ public class DefaultVideoFrameProcessorTest {
               @Override
               public void onInputStreamRegistered(
                   @VideoFrameProcessor.InputType int inputType,
-                  List<Effect> effects,
-                  FrameInfo frameInfo) {
+                  Format format,
+                  List<Effect> effects) {
                 registeredInputStreamInfoWidths.add(
-                    new InputStreamInfo(inputType, effects, frameInfo));
+                    new InputStreamInfo(inputType, format, effects));
                 countDownLatch.countDown();
               }
 
@@ -157,21 +160,30 @@ public class DefaultVideoFrameProcessorTest {
     InputStreamInfo stream1 =
         new InputStreamInfo(
             VideoFrameProcessor.INPUT_TYPE_BITMAP,
-            ImmutableList.of(),
-            new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, /* width= */ 100, /* height= */ 100)
-                .build());
+            new Format.Builder()
+                .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+                .setWidth(100)
+                .setHeight(100)
+                .build(),
+            ImmutableList.of());
     InputStreamInfo stream2 =
         new InputStreamInfo(
             VideoFrameProcessor.INPUT_TYPE_BITMAP,
-            ImmutableList.of(new Contrast(.5f)),
-            new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, /* width= */ 200, /* height= */ 200)
-                .build());
+            new Format.Builder()
+                .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+                .setWidth(200)
+                .setHeight(200)
+                .build(),
+            ImmutableList.of(new Contrast(.5f)));
     InputStreamInfo stream3 =
         new InputStreamInfo(
             VideoFrameProcessor.INPUT_TYPE_BITMAP,
-            ImmutableList.of(),
-            new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, /* width= */ 300, /* height= */ 300)
-                .build());
+            new Format.Builder()
+                .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+                .setWidth(300)
+                .setHeight(300)
+                .build(),
+            ImmutableList.of());
 
     registerInputStream(defaultVideoFrameProcessor, stream1);
     registerInputStream(defaultVideoFrameProcessor, stream2);
@@ -207,8 +219,8 @@ public class DefaultVideoFrameProcessorTest {
               @Override
               public void onInputStreamRegistered(
                   @VideoFrameProcessor.InputType int inputType,
-                  List<Effect> effects,
-                  FrameInfo frameInfo) {
+                  Format format,
+                  List<Effect> effects) {
                 inputStreamRegisteredCondition.open();
               }
 
@@ -241,9 +253,13 @@ public class DefaultVideoFrameProcessorTest {
     inputStreamRegisteredCondition.close();
     defaultVideoFrameProcessor.registerInputStream(
         VideoFrameProcessor.INPUT_TYPE_BITMAP,
+        new Format.Builder()
+            .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+            .setWidth(bitmap1.getWidth())
+            .setHeight(bitmap1.getHeight())
+            .build(),
         ImmutableList.of(),
-        new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, bitmap1.getWidth(), bitmap1.getHeight())
-            .build());
+        /* offsetToAddUs= */ 0);
     inputStreamRegisteredCondition.block();
     defaultVideoFrameProcessor.queueInputBitmap(
         bitmap1, new ConstantRateTimestampIterator(C.MICROS_PER_SECOND, 30.f));
@@ -252,14 +268,18 @@ public class DefaultVideoFrameProcessorTest {
     inputStreamRegisteredCondition.close();
     defaultVideoFrameProcessor.registerInputStream(
         VideoFrameProcessor.INPUT_TYPE_BITMAP,
+        new Format.Builder()
+            .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+            .setWidth(bitmap2.getWidth())
+            .setHeight(bitmap2.getHeight())
+            .build(),
         ImmutableList.of(
             (GlEffect)
                 (context, useHdr) -> {
                   secondStreamConfigurationTimeMs.set(SystemClock.DEFAULT.elapsedRealtime());
                   return new PassthroughShaderProgram();
                 }),
-        new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, bitmap2.getWidth(), bitmap2.getHeight())
-            .build());
+        /* offsetToAddUs= */ 0);
     inputStreamRegisteredCondition.block();
     defaultVideoFrameProcessor.queueInputBitmap(
         bitmap2, new ConstantRateTimestampIterator(C.MICROS_PER_SECOND, 30.f));
@@ -274,11 +294,10 @@ public class DefaultVideoFrameProcessorTest {
         .isAtLeast(firstStreamLastFrameAvailableTimeMs.get());
   }
 
-  @Ignore("b/350956435 - Re-enable when it's no longer flaky")
   @Test
   public void registerInputStreamWithAutomaticFrameRegistration_succeeds() throws Exception {
     CountDownLatch inputStreamRegisteredCountDownLatch = new CountDownLatch(1);
-    AtomicInteger outputFrameCount = new AtomicInteger();
+    ConditionVariable outputFrameAvailableConditionVariable = new ConditionVariable();
     AtomicReference<@NullableType Exception> error = new AtomicReference<>();
     CountDownLatch endedCountDownLatch = new CountDownLatch(1);
     defaultVideoFrameProcessor =
@@ -287,14 +306,14 @@ public class DefaultVideoFrameProcessorTest {
               @Override
               public void onInputStreamRegistered(
                   @VideoFrameProcessor.InputType int inputType,
-                  List<Effect> effects,
-                  FrameInfo frameInfo) {
+                  Format format,
+                  List<Effect> effects) {
                 inputStreamRegisteredCountDownLatch.countDown();
               }
 
               @Override
               public void onOutputFrameAvailableForRendering(long presentationTimeUs) {
-                outputFrameCount.incrementAndGet();
+                outputFrameAvailableConditionVariable.open();
               }
 
               @Override
@@ -311,9 +330,13 @@ public class DefaultVideoFrameProcessorTest {
     Bitmap bitmap = BitmapPixelTestUtil.readBitmap(ORIGINAL_PNG_ASSET_PATH);
     defaultVideoFrameProcessor.registerInputStream(
         VideoFrameProcessor.INPUT_TYPE_SURFACE_AUTOMATIC_FRAME_REGISTRATION,
+        new Format.Builder()
+            .setColorInfo(ColorInfo.SRGB_BT709_FULL)
+            .setWidth(bitmap.getWidth())
+            .setHeight(bitmap.getHeight())
+            .build(),
         /* effects= */ ImmutableList.of(),
-        new FrameInfo.Builder(ColorInfo.SRGB_BT709_FULL, bitmap.getWidth(), bitmap.getHeight())
-            .build());
+        /* offsetToAddUs= */ 0);
     inputStreamRegisteredCountDownLatch.await();
     checkState(defaultVideoFrameProcessor.registerInputFrame());
 
@@ -330,6 +353,9 @@ public class DefaultVideoFrameProcessorTest {
       // This causes a frame to become available on the input surface, which is processed by the
       // video frame processor.
       surface.unlockCanvasAndPost(canvas);
+      // Wait for the output frame to be rendered.
+      assertThat(outputFrameAvailableConditionVariable.block(TEST_TIMEOUT_MS)).isTrue();
+      outputFrameAvailableConditionVariable.close();
     }
     defaultVideoFrameProcessor.signalEndOfInput();
 
@@ -337,7 +363,6 @@ public class DefaultVideoFrameProcessorTest {
       throw new IllegalStateException("Test timeout", error.get());
     }
     assertThat(error.get()).isNull();
-    assertThat(outputFrameCount.get()).isEqualTo(inputFrameCount);
   }
 
   private DefaultVideoFrameProcessor createDefaultVideoFrameProcessor(
@@ -355,19 +380,22 @@ public class DefaultVideoFrameProcessorTest {
   private static void registerInputStream(
       DefaultVideoFrameProcessor defaultVideoFrameProcessor, InputStreamInfo inputStreamInfo) {
     defaultVideoFrameProcessor.registerInputStream(
-        inputStreamInfo.inputType, inputStreamInfo.effects, inputStreamInfo.frameInfo);
+        inputStreamInfo.inputType,
+        inputStreamInfo.format,
+        inputStreamInfo.effects,
+        /* offsetToAddUs= */ 0);
   }
 
   private static final class InputStreamInfo {
     public final @VideoFrameProcessor.InputType int inputType;
+    public final Format format;
     public final List<Effect> effects;
-    public final FrameInfo frameInfo;
 
     private InputStreamInfo(
-        @VideoFrameProcessor.InputType int inputType, List<Effect> effects, FrameInfo frameInfo) {
+        @VideoFrameProcessor.InputType int inputType, Format format, List<Effect> effects) {
       this.inputType = inputType;
+      this.format = format;
       this.effects = effects;
-      this.frameInfo = frameInfo;
     }
 
     @Override
@@ -380,16 +408,16 @@ public class DefaultVideoFrameProcessorTest {
       }
       InputStreamInfo that = (InputStreamInfo) o;
       return inputType == that.inputType
-          && Util.areEqual(this.effects, that.effects)
-          && Util.areEqual(this.frameInfo, that.frameInfo);
+          && Objects.equals(this.format, that.format)
+          && Objects.equals(this.effects, that.effects);
     }
 
     @Override
     public int hashCode() {
       int result = 17;
       result = 31 * result + inputType;
+      result = 31 * result + format.hashCode();
       result = 31 * result + effects.hashCode();
-      result = 31 * result + frameInfo.hashCode();
       return result;
     }
   }

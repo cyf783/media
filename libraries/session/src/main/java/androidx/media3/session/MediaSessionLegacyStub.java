@@ -1029,7 +1029,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         return false;
       }
       ControllerLegacyCb other = (ControllerLegacyCb) obj;
-      return Util.areEqual(remoteUserInfo, other.remoteUserInfo);
+      return Objects.equals(remoteUserInfo, other.remoteUserInfo);
     }
   }
 
@@ -1066,18 +1066,18 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       // can point to the valid current media item in the playlist.
       Timeline newTimeline = newPlayerWrapper.getCurrentTimelineWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(oldPlayerWrapper.getCurrentTimelineWithCommandCheck(), newTimeline)) {
+          || !Objects.equals(oldPlayerWrapper.getCurrentTimelineWithCommandCheck(), newTimeline)) {
         onTimelineChanged(seq, newTimeline, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
       }
       MediaMetadata newPlaylistMetadata = newPlayerWrapper.getPlaylistMetadataWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(
+          || !Objects.equals(
               oldPlayerWrapper.getPlaylistMetadataWithCommandCheck(), newPlaylistMetadata)) {
         onPlaylistMetadataChanged(seq, newPlaylistMetadata);
       }
       MediaMetadata newMediaMetadata = newPlayerWrapper.getMediaMetadataWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(
+          || !Objects.equals(
               oldPlayerWrapper.getMediaMetadataWithCommandCheck(), newMediaMetadata)) {
         onMediaMetadataChanged(seq, newMediaMetadata);
       }
@@ -1090,15 +1090,19 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         onRepeatModeChanged(seq, newPlayerWrapper.getRepeatMode());
       }
 
-      // Forcefully update playback info to update VolumeProviderCompat attached to the
-      // old player.
+      // Forcefully update device info to update VolumeProviderCompat attached to the old player.
       onDeviceInfoChanged(seq, newPlayerWrapper.getDeviceInfo());
+
+      if (hasChangedSlotReservationExtras(oldPlayerWrapper, newPlayerWrapper)) {
+        sessionCompat.setExtras(newPlayerWrapper.getLegacyExtras());
+      }
 
       // Rest of changes are all notified via PlaybackStateCompat.
       maybeUpdateFlags(newPlayerWrapper);
       @Nullable MediaItem newMediaItem = newPlayerWrapper.getCurrentMediaItemWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(oldPlayerWrapper.getCurrentMediaItemWithCommandCheck(), newMediaItem)) {
+          || !Objects.equals(
+              oldPlayerWrapper.getCurrentMediaItemWithCommandCheck(), newMediaItem)) {
         // Note: This will update both PlaybackStateCompat and metadata.
         onMediaItemTransition(
             seq, newMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED);
@@ -1127,13 +1131,14 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
     @Override
     public void onSessionExtrasChanged(int seq, Bundle sessionExtras) {
-      sessionCompat.setExtras(sessionExtras);
-      sessionImpl.getPlayerWrapper().setLegacyExtras(sessionExtras);
+      PlayerWrapper playerWrapper = sessionImpl.getPlayerWrapper();
+      playerWrapper.setLegacyExtras(sessionExtras);
+      sessionCompat.setExtras(playerWrapper.getLegacyExtras());
       sessionCompat.setPlaybackState(sessionImpl.getPlayerWrapper().createPlaybackStateCompat());
     }
 
     @Override
-    public void onSessionActivityChanged(int seq, PendingIntent sessionActivity) {
+    public void onSessionActivityChanged(int seq, @Nullable PendingIntent sessionActivity) {
       sessionCompat.setSessionActivity(sessionActivity);
     }
 
@@ -1426,6 +1431,28 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
   }
 
+  private static boolean hasChangedSlotReservationExtras(
+      @Nullable PlayerWrapper oldPlayerWrapper, PlayerWrapper newPlayerWrapper) {
+    if (oldPlayerWrapper == null) {
+      return true;
+    }
+    Bundle oldExtras = oldPlayerWrapper.getLegacyExtras();
+    boolean oldPrevReservation =
+        oldExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, /* defaultVale= */ false);
+    boolean oldNextReservation =
+        oldExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, /* defaultVale= */ false);
+    Bundle newExtras = newPlayerWrapper.getLegacyExtras();
+    boolean newPrevReservation =
+        newExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, /* defaultVale= */ false);
+    boolean newNextReservation =
+        newExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, /* defaultVale= */ false);
+    return (oldPrevReservation != newPrevReservation) || (oldNextReservation != newNextReservation);
+  }
+
   private static class ConnectionTimeoutHandler extends Handler {
 
     private static final int MSG_CONNECTION_TIMED_OUT = 1001;
@@ -1481,11 +1508,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-      if (!Util.areEqual(intent.getAction(), Intent.ACTION_MEDIA_BUTTON)) {
-        return;
-      }
-      Uri sessionUri = intent.getData();
-      if (!Util.areEqual(sessionUri, sessionUri)) {
+      if (!Objects.equals(intent.getAction(), Intent.ACTION_MEDIA_BUTTON)) {
         return;
       }
       KeyEvent keyEvent = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);

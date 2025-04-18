@@ -101,7 +101,7 @@ public class SimpleBasePlayerTest {
             .setSeekForwardIncrementMs(4000)
             .setMaxSeekToPreviousPositionMs(3000)
             .setPlaybackParameters(new PlaybackParameters(/* speed= */ 2f))
-            .setTrackSelectionParameters(TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT)
+            .setTrackSelectionParameters(TrackSelectionParameters.DEFAULT)
             .setAudioAttributes(
                 new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build())
             .setVolume(0.5f)
@@ -146,6 +146,74 @@ public class SimpleBasePlayerTest {
 
     assertThat(newState).isEqualTo(state);
     assertThat(newState.hashCode()).isEqualTo(state.hashCode());
+  }
+
+  @Test
+  public void stateBuildUpon_withExplicitTimeline_isEqual() {
+    MediaMetadata mediaMetadata = new MediaMetadata.Builder().setTitle("title").build();
+    Tracks tracks =
+        new Tracks(
+            ImmutableList.of(
+                new Tracks.Group(
+                    new TrackGroup(new Format.Builder().build()),
+                    /* adaptiveSupported= */ true,
+                    /* trackSupport= */ new int[] {C.FORMAT_HANDLED},
+                    /* trackSelected= */ new boolean[] {true})));
+    State state =
+        new State.Builder()
+            .setPlaylist(new FakeTimeline(/* windowCount= */ 3), tracks, mediaMetadata)
+            .build();
+
+    State newState = state.buildUpon().build();
+
+    assertThat(newState).isEqualTo(state);
+    assertThat(newState.hashCode()).isEqualTo(state.hashCode());
+  }
+
+  @Test
+  public void stateBuildUpon_withExplicitTimelineAndNewCurrentIndex_reevalutesMediaMetadata() {
+    Timeline timeline =
+        new FakeTimeline(
+            new FakeTimeline.TimelineWindowDefinition(
+                /* periodCount= */ 1,
+                /* id= */ 0,
+                /* isSeekable= */ true,
+                /* isDynamic= */ true,
+                /* isLive= */ true,
+                /* isPlaceholder= */ false,
+                /* durationUs= */ 1000,
+                /* defaultPositionUs= */ 0,
+                /* windowOffsetInFirstPeriodUs= */ 0,
+                ImmutableList.of(AdPlaybackState.NONE),
+                new MediaItem.Builder()
+                    .setMediaId("1")
+                    .setMediaMetadata(new MediaMetadata.Builder().setArtist("artist1").build())
+                    .build()),
+            new FakeTimeline.TimelineWindowDefinition(
+                /* periodCount= */ 1,
+                /* id= */ 1,
+                /* isSeekable= */ true,
+                /* isDynamic= */ true,
+                /* isLive= */ true,
+                /* isPlaceholder= */ false,
+                /* durationUs= */ 1000,
+                /* defaultPositionUs= */ 0,
+                /* windowOffsetInFirstPeriodUs= */ 0,
+                ImmutableList.of(AdPlaybackState.NONE),
+                new MediaItem.Builder()
+                    .setMediaId("2")
+                    .setMediaMetadata(new MediaMetadata.Builder().setArtist("artist2").build())
+                    .build()));
+    State state =
+        new State.Builder()
+            .setPlaylist(timeline, Tracks.EMPTY, /* currentMetadata= */ null)
+            .setCurrentMediaItemIndex(0)
+            .build();
+
+    State newState = state.buildUpon().setCurrentMediaItemIndex(1).build();
+
+    assertThat(newState.currentMetadata)
+        .isEqualTo(new MediaMetadata.Builder().setArtist("artist2").build());
   }
 
   @Test
@@ -212,10 +280,7 @@ public class SimpleBasePlayerTest {
             /* message= */ null, /* cause= */ null, PlaybackException.ERROR_CODE_DECODING_FAILED);
     PlaybackParameters playbackParameters = new PlaybackParameters(/* speed= */ 2f);
     TrackSelectionParameters trackSelectionParameters =
-        TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT
-            .buildUpon()
-            .setMaxVideoBitrate(1000)
-            .build();
+        TrackSelectionParameters.DEFAULT.buildUpon().setMaxVideoBitrate(1000).build();
     AudioAttributes audioAttributes =
         new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build();
     VideoSize videoSize = new VideoSize(/* width= */ 200, /* height= */ 400);
@@ -877,10 +942,7 @@ public class SimpleBasePlayerTest {
             /* message= */ null, /* cause= */ null, PlaybackException.ERROR_CODE_DECODING_FAILED);
     PlaybackParameters playbackParameters = new PlaybackParameters(/* speed= */ 2f);
     TrackSelectionParameters trackSelectionParameters =
-        TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT
-            .buildUpon()
-            .setMaxVideoBitrate(1000)
-            .build();
+        TrackSelectionParameters.DEFAULT.buildUpon().setMaxVideoBitrate(1000).build();
     AudioAttributes audioAttributes =
         new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build();
     VideoSize videoSize = new VideoSize(/* width= */ 200, /* height= */ 400);
@@ -1300,7 +1362,7 @@ public class SimpleBasePlayerTest {
             .setSeekForwardIncrementMs(2000)
             .setMaxSeekToPreviousPositionMs(8000)
             .setPlaybackParameters(PlaybackParameters.DEFAULT)
-            .setTrackSelectionParameters(TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT)
+            .setTrackSelectionParameters(TrackSelectionParameters.DEFAULT)
             .setAudioAttributes(AudioAttributes.DEFAULT)
             .setVolume(1f)
             .setVideoSize(VideoSize.UNKNOWN)
@@ -1339,10 +1401,7 @@ public class SimpleBasePlayerTest {
             /* message= */ null, /* cause= */ null, PlaybackException.ERROR_CODE_DECODING_FAILED);
     PlaybackParameters playbackParameters = new PlaybackParameters(/* speed= */ 2f);
     TrackSelectionParameters trackSelectionParameters =
-        TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT
-            .buildUpon()
-            .setMaxVideoBitrate(1000)
-            .build();
+        TrackSelectionParameters.DEFAULT.buildUpon().setMaxVideoBitrate(1000).build();
     AudioAttributes audioAttributes =
         new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build();
     VideoSize videoSize = new VideoSize(/* width= */ 200, /* height= */ 400);
@@ -8696,6 +8755,36 @@ public class SimpleBasePlayerTest {
     player.seekToNextMediaItem();
 
     assertThat(callForwarded.get()).isFalse();
+  }
+
+  @Test
+  public void livePositionProvider_returnsChangingLivePosition() {
+    AtomicInteger livePositionMs = new AtomicInteger(/* initialValue= */ 100);
+    SimpleBasePlayer.LivePositionSupplier livePositionSupplier =
+        new SimpleBasePlayer.LivePositionSupplier(livePositionMs::get);
+
+    long position1Ms = livePositionSupplier.get();
+    livePositionMs.set(200);
+    long position2Ms = livePositionSupplier.get();
+    livePositionMs.set(300);
+    long position3Ms = livePositionSupplier.get();
+
+    assertThat(position1Ms).isEqualTo(100);
+    assertThat(position2Ms).isEqualTo(200);
+    assertThat(position3Ms).isEqualTo(300);
+  }
+
+  @Test
+  public void livePositionProvider_disconnect_returnsFinalPosition() {
+    AtomicInteger livePositionMs = new AtomicInteger(/* initialValue= */ 100);
+    SimpleBasePlayer.LivePositionSupplier livePositionSupplier =
+        new SimpleBasePlayer.LivePositionSupplier(livePositionMs::get);
+
+    livePositionSupplier.disconnect(/* finalValue= */ 150);
+    livePositionMs.set(200);
+    long positionMs = livePositionSupplier.get();
+
+    assertThat(positionMs).isEqualTo(150);
   }
 
   private static Object[] getAnyArguments(Method method) {

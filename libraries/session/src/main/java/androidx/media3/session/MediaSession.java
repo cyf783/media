@@ -59,11 +59,9 @@ import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSourceBitmapLoader;
 import androidx.media3.session.MediaLibraryService.LibraryParams;
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession;
-import androidx.media3.session.legacy.LegacyParcelableUtil;
 import androidx.media3.session.legacy.MediaControllerCompat;
 import androidx.media3.session.legacy.MediaSessionCompat;
 import androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.Futures;
@@ -72,6 +70,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.DoNotMock;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /**
@@ -339,7 +338,6 @@ public class MediaSession {
      * @param sessionExtras The session extras {@link Bundle}.
      * @return The builder to allow chaining.
      */
-    @UnstableApi
     @Override
     public Builder setSessionExtras(Bundle sessionExtras) {
       return super.setSessionExtras(sessionExtras);
@@ -616,7 +614,7 @@ public class MediaSession {
 
     @Override
     public int hashCode() {
-      return Objects.hashCode(controllerCb, remoteUserInfo);
+      return Objects.hash(controllerCb, remoteUserInfo);
     }
 
     @Override
@@ -629,7 +627,7 @@ public class MediaSession {
       }
       ControllerInfo other = (ControllerInfo) obj;
       if (controllerCb != null || other.controllerCb != null) {
-        return Util.areEqual(controllerCb, other.controllerCb);
+        return Objects.equals(controllerCb, other.controllerCb);
       }
       return remoteUserInfo.equals(other.remoteUserInfo);
     }
@@ -662,29 +660,6 @@ public class MediaSession {
           /* cb= */ null,
           /* connectionHints= */ Bundle.EMPTY,
           /* maxCommandsForMediaItems= */ 0);
-    }
-
-    /**
-     * @deprecated Use {@link #createTestOnlyControllerInfo(String, int, int, int, int, boolean,
-     *     Bundle)} instead.
-     */
-    @VisibleForTesting(otherwise = PRIVATE)
-    @SuppressWarnings("UnnecessarilyFullyQualified") // Avoiding clash with Media3 RemoteUserInfo.
-    @Deprecated
-    public static ControllerInfo createTestOnlyControllerInfo(
-        androidx.media.MediaSessionManager.RemoteUserInfo remoteUserInfo,
-        int libraryVersion,
-        int interfaceVersion,
-        boolean trusted,
-        Bundle connectionHints) {
-      return createTestOnlyControllerInfo(
-          remoteUserInfo.getPackageName(),
-          remoteUserInfo.getPid(),
-          remoteUserInfo.getUid(),
-          libraryVersion,
-          interfaceVersion,
-          trusted,
-          connectionHints);
     }
 
     /** Returns a {@link ControllerInfo} suitable for use when testing client code. */
@@ -791,7 +766,7 @@ public class MediaSession {
   /* package */ static MediaSession getSession(Uri sessionUri) {
     synchronized (STATIC_LOCK) {
       for (MediaSession session : SESSION_ID_TO_SESSION_MAP.values()) {
-        if (Util.areEqual(session.getUri(), sessionUri)) {
+        if (Objects.equals(session.getUri(), sessionUri)) {
           return session;
         }
       }
@@ -814,13 +789,16 @@ public class MediaSession {
    * Updates the session activity that was set when {@linkplain
    * Builder#setSessionActivity(PendingIntent) building the session}.
    *
-   * @param activityPendingIntent The pending intent to start the session activity.
+   * <p>Note: When a controller is connected to the session that has a version smaller than 1.6.0,
+   * then setting the session activity to null has no effect on the controller side.
+   *
+   * @param activityPendingIntent The pending intent to start the session activity or null.
    * @throws IllegalArgumentException if the {@link PendingIntent} passed into this method is
    *     {@linkplain PendingIntent#getActivity(Context, int, Intent, int) not an activity}.
    */
   @UnstableApi
-  public final void setSessionActivity(PendingIntent activityPendingIntent) {
-    if (Util.SDK_INT >= 31) {
+  public final void setSessionActivity(@Nullable PendingIntent activityPendingIntent) {
+    if (Util.SDK_INT >= 31 && activityPendingIntent != null) {
       checkArgument(Api31.isActivity(activityPendingIntent));
     }
     impl.setSessionActivity(activityPendingIntent);
@@ -843,8 +821,8 @@ public class MediaSession {
    */
   @UnstableApi
   public final void setSessionActivity(
-      ControllerInfo controller, PendingIntent activityPendingIntent) {
-    if (Util.SDK_INT >= 31) {
+      ControllerInfo controller, @Nullable PendingIntent activityPendingIntent) {
+    if (Util.SDK_INT >= 31 && activityPendingIntent != null) {
       checkArgument(Api31.isActivity(activityPendingIntent));
     }
     impl.setSessionActivity(controller, activityPendingIntent);
@@ -1220,7 +1198,6 @@ public class MediaSession {
    * effect. To change the session extras use {@link #setSessionExtras(Bundle)} or {@link
    * #setSessionExtras(ControllerInfo, Bundle)}.
    */
-  @UnstableApi
   public Bundle getSessionExtras() {
     return impl.getSessionExtras();
   }
@@ -1339,20 +1316,6 @@ public class MediaSession {
 
   /* package */ final MediaSessionCompat getSessionCompat() {
     return impl.getSessionCompat();
-  }
-
-  /**
-   * Returns the legacy {@code android.support.v4.media.session.MediaSessionCompat.Token} of the
-   * {@code android.support.v4.media.session.MediaSessionCompat} created internally by this session.
-   *
-   * @deprecated Use {@link #getPlatformToken()} instead.
-   */
-  @Deprecated
-  @UnstableApi
-  public final android.support.v4.media.session.MediaSessionCompat.Token getSessionCompatToken() {
-    return LegacyParcelableUtil.convert(
-        impl.getSessionCompat().getSessionToken(),
-        android.support.v4.media.session.MediaSessionCompat.Token.CREATOR);
   }
 
   /**
@@ -1851,8 +1814,8 @@ public class MediaSession {
       MediaItemsWithStartPosition other = (MediaItemsWithStartPosition) obj;
 
       return mediaItems.equals(other.mediaItems)
-          && Util.areEqual(startIndex, other.startIndex)
-          && Util.areEqual(startPositionMs, other.startPositionMs);
+          && startIndex == other.startIndex
+          && startPositionMs == other.startPositionMs;
     }
 
     @Override
@@ -2128,7 +2091,7 @@ public class MediaSession {
     default void setMediaButtonPreferences(int seq, List<CommandButton> mediaButtonPreferences)
         throws RemoteException {}
 
-    default void onSessionActivityChanged(int seq, PendingIntent sessionActivity)
+    default void onSessionActivityChanged(int seq, @Nullable PendingIntent sessionActivity)
         throws RemoteException {}
 
     default void onSessionExtrasChanged(int seq, Bundle sessionExtras) throws RemoteException {}

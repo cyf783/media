@@ -21,6 +21,7 @@ import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
 import androidx.media3.common.PreviewingVideoGraph;
+import androidx.media3.common.VideoCompositorSettings;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.UnstableApi;
 import java.util.List;
@@ -62,6 +63,7 @@ public final class PreviewingSingleInputVideoGraph extends SingleInputVideoGraph
         DebugViewProvider debugViewProvider,
         Listener listener,
         Executor listenerExecutor,
+        VideoCompositorSettings videoCompositorSettings,
         List<Effect> compositionEffects,
         long initialTimestampOffsetUs) {
       return new PreviewingSingleInputVideoGraph(
@@ -72,6 +74,11 @@ public final class PreviewingSingleInputVideoGraph extends SingleInputVideoGraph
           listener,
           listenerExecutor,
           initialTimestampOffsetUs);
+    }
+
+    @Override
+    public boolean supportsMultipleInputs() {
+      return false;
     }
   }
 

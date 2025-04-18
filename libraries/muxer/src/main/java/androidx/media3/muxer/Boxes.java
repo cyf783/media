@@ -685,8 +685,10 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   }
 
   /** Returns a codec specific box. */
+  @SuppressWarnings("MergeCases")
   public static ByteBuffer codecSpecificBox(Format format) {
     String mimeType = checkNotNull(format.sampleMimeType);
+    // LINT.IfChange(codec_specific_boxes)
     switch (mimeType) {
       case MimeTypes.AUDIO_AAC:
       case MimeTypes.AUDIO_VORBIS:
@@ -697,6 +699,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         return damrBox(/* mode= */ (short) 0x83FF); // mode set: all enabled for AMR-WB
       case MimeTypes.AUDIO_OPUS:
         return dOpsBox(format);
+      case MimeTypes.AUDIO_RAW:
+        return ByteBuffer.allocate(0); // No codec specific box for raw audio.
       case MimeTypes.VIDEO_H263:
         return d263Box(format);
       case MimeTypes.VIDEO_H264:
@@ -705,6 +709,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         return hvcCBox(format);
       case MimeTypes.VIDEO_AV1:
         return av1CBox(format);
+      case MimeTypes.VIDEO_APV:
+        return apvCBox(format);
       case MimeTypes.VIDEO_MP4V:
         return esdsBox(format);
       case MimeTypes.VIDEO_VP9:
@@ -712,6 +718,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
       default:
         throw new IllegalArgumentException("Unsupported format: " + mimeType);
     }
+    // LINT.ThenChange(Mp4Muxer.java:supported_mime_types,
+    // FragmentedMp4Muxer.java:supported_mime_types)
   }
 
   /**
@@ -1063,21 +1071,28 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         ByteBuffer.allocate(writtenChunkSampleCounts.size() * 12 + MAX_FIXED_LEAF_BOX_SIZE);
 
     contents.putInt(0x0); // version and flags
-    contents.putInt(writtenChunkSampleCounts.size()); // entry_count
+    int totalEntryCountIndex = contents.position();
+    contents.putInt(0); // entry_count
 
     int currentChunk = 1;
+    int prevChunkSampleCount = -1;
+    int totalEntryCount = 0;
 
-    // TODO: b/270583563 - Consider optimizing for consecutive chunks having same number of samples.
     for (int i = 0; i < writtenChunkSampleCounts.size(); i++) {
       int samplesInChunk = writtenChunkSampleCounts.get(i);
-      contents.putInt(currentChunk); // first_chunk
-      contents.putInt(samplesInChunk); // samples_per_chunk
-      // sample_description_index: there is only one sample description in each track.
-      contents.putInt(1);
-
+      // For exact same chunks, add only first chunk number.
+      if (samplesInChunk != prevChunkSampleCount) {
+        contents.putInt(currentChunk); // first_chunk
+        contents.putInt(samplesInChunk); // samples_per_chunk
+        // sample_description_index: there is only one sample description in each track.
+        contents.putInt(1);
+        totalEntryCount++;
+        prevChunkSampleCount = samplesInChunk;
+      }
       currentChunk += 1;
     }
 
+    contents.putInt(totalEntryCountIndex, totalEntryCount);
     contents.flip();
     return BoxUtils.wrapIntoBox("stsc", contents);
   }
@@ -1279,14 +1294,14 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("trex", contents);
   }
 
-  /** Returns the edvd box header. */
-  public static ByteBuffer getEdvdBoxHeader(long payloadSize) {
-    ByteBuffer edvdBoxHeader = ByteBuffer.allocate(LARGE_SIZE_BOX_HEADER_SIZE);
-    edvdBoxHeader.putInt(1); // indicating a 64-bit length field
-    edvdBoxHeader.put(Util.getUtf8Bytes("edvd"));
-    edvdBoxHeader.putLong(LARGE_SIZE_BOX_HEADER_SIZE + payloadSize); // the actual length
-    edvdBoxHeader.flip();
-    return edvdBoxHeader;
+  /** Returns the axte box header. */
+  public static ByteBuffer getAxteBoxHeader(long payloadSize) {
+    ByteBuffer axteBoxHeader = ByteBuffer.allocate(LARGE_SIZE_BOX_HEADER_SIZE);
+    axteBoxHeader.putInt(1); // indicating a 64-bit length field
+    axteBoxHeader.put(Util.getUtf8Bytes("axte"));
+    axteBoxHeader.putLong(LARGE_SIZE_BOX_HEADER_SIZE + payloadSize); // the actual length
+    axteBoxHeader.flip();
+    return axteBoxHeader;
   }
 
   /** Returns an ISO 639-2/T (ISO3) language code for the IETF BCP 47 language tag. */
@@ -1499,6 +1514,24 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("hvcC", contents);
   }
 
+  /** Returns the apvC box. */
+  private static ByteBuffer apvCBox(Format format) {
+    // For APV, the entire codec-specific box is packed into csd-0.
+    checkArgument(
+        !format.initializationData.isEmpty(), "csd-0 is not found in the format for avpC box");
+
+    byte[] csd0 = format.initializationData.get(0);
+    checkArgument(csd0.length > 0, "csd-0 is empty for avpC box.");
+
+    int versionAndFlags = 0;
+    ByteBuffer apvcBoxContent = ByteBuffer.allocate(csd0.length + BYTES_PER_INTEGER);
+    apvcBoxContent.putInt(versionAndFlags);
+    apvcBoxContent.put(csd0);
+    apvcBoxContent.flip();
+
+    return BoxUtils.wrapIntoBox("apvC", apvcBoxContent);
+  }
+
   /** Returns the av1C box. */
   private static ByteBuffer av1CBox(Format format) {
     // For AV1, the entire codec-specific box is packed into csd-0.
@@ -1669,12 +1702,22 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
         return "s263";
       case MimeTypes.AUDIO_OPUS:
         return "Opus";
+      case MimeTypes.AUDIO_RAW:
+        if (format.pcmEncoding == C.ENCODING_PCM_16BIT) {
+          return "sowt";
+        } else if (format.pcmEncoding == C.ENCODING_PCM_16BIT_BIG_ENDIAN) {
+          return "twos";
+        } else {
+          throw new IllegalArgumentException("Unsupported PCM encoding: " + format.pcmEncoding);
+        }
       case MimeTypes.VIDEO_H264:
         return "avc1";
       case MimeTypes.VIDEO_H265:
         return "hvc1";
       case MimeTypes.VIDEO_AV1:
         return "av01";
+      case MimeTypes.VIDEO_APV:
+        return "apv1";
       case MimeTypes.VIDEO_MP4V:
         return "mp4v-es";
       case MimeTypes.VIDEO_VP9:

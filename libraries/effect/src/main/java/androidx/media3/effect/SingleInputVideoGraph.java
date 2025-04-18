@@ -26,6 +26,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.SurfaceInfo;
+import androidx.media3.common.VideoCompositorSettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.VideoGraph;
@@ -48,7 +49,6 @@ public abstract class SingleInputVideoGraph implements VideoGraph {
 
   @Nullable private VideoFrameProcessor videoFrameProcessor;
   @Nullable private SurfaceInfo outputSurfaceInfo;
-  private boolean isEnded;
   private boolean released;
   private volatile boolean hasProducedFrameWithTimestampZero;
   private int inputIndex;
@@ -96,7 +96,7 @@ public abstract class SingleInputVideoGraph implements VideoGraph {
   @Override
   public void registerInput(int inputIndex) throws VideoFrameProcessingException {
     checkStateNotNull(videoFrameProcessor == null && !released);
-    checkState(this.inputIndex == C.INDEX_UNSET);
+    checkState(this.inputIndex == C.INDEX_UNSET, "This VideoGraph supports only one input.");
 
     this.inputIndex = inputIndex;
     videoFrameProcessor =
@@ -115,13 +115,12 @@ public abstract class SingleInputVideoGraph implements VideoGraph {
               }
 
               @Override
+              public void onOutputFrameRateChanged(float frameRate) {
+                listenerExecutor.execute(() -> listener.onOutputFrameRateChanged(frameRate));
+              }
+
+              @Override
               public void onOutputFrameAvailableForRendering(long presentationTimeUs) {
-                if (isEnded) {
-                  onError(
-                      new VideoFrameProcessingException(
-                          "onOutputFrameAvailableForRendering() received after onEnded()"));
-                  return;
-                }
                 // Frames are rendered automatically.
                 if (presentationTimeUs == 0) {
                   hasProducedFrameWithTimestampZero = true;
@@ -138,11 +137,6 @@ public abstract class SingleInputVideoGraph implements VideoGraph {
 
               @Override
               public void onEnded() {
-                if (isEnded) {
-                  onError(new VideoFrameProcessingException("onEnded() received multiple times"));
-                  return;
-                }
-                isEnded = true;
                 listenerExecutor.execute(
                     () -> listener.onEnded(lastProcessedFramePresentationTimeUs));
               }

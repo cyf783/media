@@ -21,8 +21,8 @@ import static androidx.media3.exoplayer.source.ads.ServerSideAdInsertionUtil.add
 import static androidx.media3.test.utils.FakeSampleStream.FakeSampleStreamItem.END_OF_STREAM_ITEM;
 import static androidx.media3.test.utils.FakeSampleStream.FakeSampleStreamItem.oneByteSample;
 import static androidx.media3.test.utils.robolectric.RobolectricUtil.runMainLooperUntil;
+import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.advance;
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.playUntilPosition;
-import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilIsLoading;
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilPendingCommandsAreFullyHandled;
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilPlaybackState;
 import static com.google.common.truth.Truth.assertThat;
@@ -93,8 +93,10 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.annotation.Config;
 
 /** Unit test for {@link ServerSideAdInsertionMediaSource}. */
+@Config(sdk = 30) // TODO: b/382017156 - Remove this when the tests pass on API 31+.
 @RunWith(AndroidJUnit4.class)
 public final class ServerSideAdInsertionMediaSourceTest {
 
@@ -196,7 +198,8 @@ public final class ServerSideAdInsertionMediaSourceTest {
           public void onContinueLoadingRequested(MediaPeriod source) {}
         };
     AdPlaybackState adPlaybackState =
-        new AdPlaybackState("adsId").withLivePostrollPlaceholderAppended();
+        new AdPlaybackState("adsId")
+            .withLivePostrollPlaceholderAppended(/* isServerSideInserted= */ true);
     FakeTimeline wrappedTimeline =
         new FakeTimeline(
             new FakeTimeline.TimelineWindowDefinition(
@@ -521,8 +524,7 @@ public final class ServerSideAdInsertionMediaSourceTest {
 
     // Add ad at the current playback position during playback.
     runUntilPlaybackState(player, Player.STATE_READY);
-    runUntilIsLoading(player, false);
-    runMainLooperUntil(() -> player.getBufferedPercentage() == 100);
+    advance(player).untilFullyBuffered();
     AdPlaybackState secondAdPlaybackState =
         addAdGroupToAdPlaybackState(
             firstAdPlaybackState,

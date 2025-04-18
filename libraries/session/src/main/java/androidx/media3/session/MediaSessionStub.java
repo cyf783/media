@@ -104,6 +104,7 @@ import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -2085,16 +2086,23 @@ import java.util.concurrent.ExecutionException;
             BundleCollectionUtil.toBundleList(mediaButtonPreferences, CommandButton::toBundle));
       } else {
         // Controller doesn't support media button preferences, send the list as a custom layout.
-        // TODO: b/332877990 - More accurately reflect media button preferences as custom layout.
+        // TODO: b/332877990 - Improve this logic to take allowed command and session extras for
+        //  this controller into account instead of assuming all slots are allowed.
+        ImmutableList<CommandButton> customLayout =
+            CommandButton.getCustomLayoutFromMediaButtonPreferences(
+                mediaButtonPreferences,
+                /* backSlotAllowed= */ true,
+                /* forwardSlotAllowed= */ true);
         iController.onSetCustomLayout(
             sequenceNumber,
-            BundleCollectionUtil.toBundleList(mediaButtonPreferences, CommandButton::toBundle));
+            BundleCollectionUtil.toBundleList(customLayout, CommandButton::toBundle));
       }
     }
 
+    @SuppressWarnings("nullness:argument") // sessionActivity can be null.
     @Override
-    public void onSessionActivityChanged(int sequenceNumber, PendingIntent sessionActivity)
-        throws RemoteException {
+    public void onSessionActivityChanged(
+        int sequenceNumber, @Nullable PendingIntent sessionActivity) throws RemoteException {
       iController.onSessionActivityChanged(sequenceNumber, sessionActivity);
     }
 
@@ -2187,7 +2195,7 @@ import java.util.concurrent.ExecutionException;
         return false;
       }
       Controller2Cb other = (Controller2Cb) obj;
-      return Util.areEqual(getCallbackBinder(), other.getCallbackBinder());
+      return Objects.equals(getCallbackBinder(), other.getCallbackBinder());
     }
   }
 }

@@ -430,6 +430,32 @@ public class ChunkSampleStream<T extends ChunkSource>
   // Loader.Callback implementation.
 
   @Override
+  public void onLoadStarted(
+      Chunk loadable, long elapsedRealtimeMs, long loadDurationMs, int retryCount) {
+    LoadEventInfo loadEventInfo =
+        retryCount == 0
+            ? new LoadEventInfo(loadable.loadTaskId, loadable.dataSpec, elapsedRealtimeMs)
+            : new LoadEventInfo(
+                loadable.loadTaskId,
+                loadable.dataSpec,
+                loadable.getUri(),
+                loadable.getResponseHeaders(),
+                elapsedRealtimeMs,
+                loadDurationMs,
+                loadable.bytesLoaded());
+    mediaSourceEventDispatcher.loadStarted(
+        loadEventInfo,
+        loadable.type,
+        primaryTrackType,
+        loadable.trackFormat,
+        loadable.trackSelectionReason,
+        loadable.trackSelectionData,
+        loadable.startTimeUs,
+        loadable.endTimeUs,
+        retryCount);
+  }
+
+  @Override
   public void onLoadCompleted(Chunk loadable, long elapsedRealtimeMs, long loadDurationMs) {
     loadingChunk = null;
     chunkSource.onChunkLoadCompleted(loadable);
@@ -636,18 +662,8 @@ public class ChunkSampleStream<T extends ChunkSource>
     } else if (loadable instanceof InitializationChunk) {
       ((InitializationChunk) loadable).init(chunkOutput);
     }
-    long elapsedRealtimeMs =
-        loader.startLoading(
-            loadable, this, loadErrorHandlingPolicy.getMinimumLoadableRetryCount(loadable.type));
-    mediaSourceEventDispatcher.loadStarted(
-        new LoadEventInfo(loadable.loadTaskId, loadable.dataSpec, elapsedRealtimeMs),
-        loadable.type,
-        primaryTrackType,
-        loadable.trackFormat,
-        loadable.trackSelectionReason,
-        loadable.trackSelectionData,
-        loadable.startTimeUs,
-        loadable.endTimeUs);
+    loader.startLoading(
+        loadable, this, loadErrorHandlingPolicy.getMinimumLoadableRetryCount(loadable.type));
     return true;
   }
 
@@ -704,6 +720,39 @@ public class ChunkSampleStream<T extends ChunkSource>
     } finally {
       hasInitialDiscontinuity = false;
     }
+  }
+
+  /**
+   * Discards upstream samples that exceed the given clipped duration of the stream.
+   *
+   * @param clippedDurationUs The clipped duration of the stream in microseconds, or {@link
+   *     C#TIME_UNSET} if not known.
+   */
+  public void discardUpstreamSamplesForClippedDuration(long clippedDurationUs) {
+    Assertions.checkState(!loader.isLoading());
+    if (isPendingReset() || clippedDurationUs == C.TIME_UNSET || mediaChunks.isEmpty()) {
+      return;
+    }
+    BaseMediaChunk lastMediaChunk = getLastMediaChunk();
+    long lastMediaChunkEndTimeUs =
+        lastMediaChunk.clippedEndTimeUs != C.TIME_UNSET
+            ? lastMediaChunk.clippedEndTimeUs
+            : lastMediaChunk.endTimeUs;
+    if (lastMediaChunkEndTimeUs <= clippedDurationUs) {
+      // Last chunk doesn't need to be clipped further.
+      return;
+    }
+    long largestQueuedTimestampUs = primarySampleQueue.getLargestQueuedTimestampUs();
+    if (largestQueuedTimestampUs <= clippedDurationUs) {
+      // No data beyond new duration that needs to be clipped.
+      return;
+    }
+    primarySampleQueue.discardUpstreamFrom(clippedDurationUs);
+    for (SampleQueue embeddedSampleQueue : embeddedSampleQueues) {
+      embeddedSampleQueue.discardUpstreamFrom(clippedDurationUs);
+    }
+    mediaSourceEventDispatcher.upstreamDiscarded(
+        primaryTrackType, clippedDurationUs, largestQueuedTimestampUs);
   }
 
   private void discardUpstream(int preferredQueueSize) {

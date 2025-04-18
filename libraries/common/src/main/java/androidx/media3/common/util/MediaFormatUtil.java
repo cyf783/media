@@ -128,6 +128,10 @@ public final class MediaFormatUtil {
 
     formatBuilder.setInitializationData(csdBuffers.build());
 
+    if (mediaFormat.containsKey(MediaFormat.KEY_TRACK_ID)) {
+      formatBuilder.setId(mediaFormat.getInteger(MediaFormat.KEY_TRACK_ID));
+    }
+
     return formatBuilder.build();
   }
 
@@ -175,6 +179,10 @@ public final class MediaFormatUtil {
     result.setInteger(MediaFormat.KEY_ENCODER_PADDING, format.encoderPadding);
 
     maybeSetPixelAspectRatio(result, format.pixelWidthHeightRatio);
+
+    if (format.id != null) {
+      result.setInteger(MediaFormat.KEY_TRACK_ID, Integer.parseInt(format.id));
+    }
     return result;
   }
 
@@ -477,6 +485,7 @@ public final class MediaFormatUtil {
         || colorSpace == C.COLOR_SPACE_BT709
         || colorSpace == C.COLOR_SPACE_BT2020
         || colorSpace == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_space)
   }
 
   /** Whether this is a valid {@link C.ColorRange} instance. */
@@ -485,6 +494,7 @@ public final class MediaFormatUtil {
     return colorRange == C.COLOR_RANGE_LIMITED
         || colorRange == C.COLOR_RANGE_FULL
         || colorRange == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_range)
   }
 
   /** Whether this is a valid {@link C.ColorTransfer} instance. */
@@ -497,6 +507,7 @@ public final class MediaFormatUtil {
         || colorTransfer == C.COLOR_TRANSFER_ST2084
         || colorTransfer == C.COLOR_TRANSFER_HLG
         || colorTransfer == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_transfer)
   }
 
   private MediaFormatUtil() {}

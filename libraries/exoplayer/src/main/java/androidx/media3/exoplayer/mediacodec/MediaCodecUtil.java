@@ -22,6 +22,7 @@ import android.annotation.SuppressLint;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaCodecList;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.Pair;
 import androidx.annotation.CheckResult;
@@ -150,7 +151,12 @@ public final class MediaCodecUtil {
     if (cachedDecoderInfos != null) {
       return cachedDecoderInfos;
     }
-    MediaCodecListCompat mediaCodecList = new MediaCodecListCompatV21(secure, tunneling);
+
+    // MV-HEVC is handled by a special codec in the media_codecs.xml file.  We need to get
+    // ALL_CODECS list to include the special codec.
+    boolean specialCodec = mimeType.equals(MimeTypes.VIDEO_MV_HEVC);
+    MediaCodecListCompat mediaCodecList =
+        new MediaCodecListCompatV21(secure, tunneling, specialCodec);
     ArrayList<MediaCodecInfo> decoderInfos = getDecoderInfosInternal(key, mediaCodecList);
     if (secure && decoderInfos.isEmpty() && Util.SDK_INT <= 23) {
       // Some devices don't list secure decoders on API level 21 [Internal: b/18678462]. Try the
@@ -254,6 +260,43 @@ public final class MediaCodecUtil {
     sortByScore(
         decoderInfos, decoderInfo -> decoderInfo.isFormatFunctionallySupported(format) ? 1 : 0);
     return decoderInfos;
+  }
+
+  /**
+   * Returns a copy of the provided decoder list sorted such that decoders with complete format
+   * support are listed first. The returned list is modifiable for convenience.
+   */
+  @CheckResult
+  public static List<MediaCodecInfo> getDecoderInfosSortedByFullFormatSupport(
+      List<MediaCodecInfo> decoderInfos, Format format) {
+    decoderInfos = new ArrayList<>(decoderInfos);
+    sortByScore(
+        decoderInfos,
+        decoderInfo -> {
+          try {
+            return decoderInfo.isFormatSupported(format) ? 1 : 0;
+          } catch (DecoderQueryException e) {
+            return -1;
+          }
+        });
+    return decoderInfos;
+  }
+
+  /**
+   * Returns a copy of the provided decoder list sorted such that software decoders are listed
+   * first. Break ties by listing non-{@link MediaCodecInfo#vendor} decoders first, due to issues
+   * with decoder reuse with some software vendor codecs. See b/382447848.
+   *
+   * <p>The returned list is not modifiable.
+   */
+  @CheckResult
+  public static List<MediaCodecInfo> getDecoderInfosSortedBySoftwareOnly(
+      List<MediaCodecInfo> decoderInfos) {
+    decoderInfos = new ArrayList<>(decoderInfos);
+    sortByScore(
+        decoderInfos,
+        decoderInfo -> (decoderInfo.softwareOnly ? 2 : 0) + (decoderInfo.vendor ? 0 : 1));
+    return ImmutableList.copyOf(decoderInfos);
   }
 
   /**
@@ -486,7 +529,7 @@ public final class MediaCodecUtil {
       }
     } else if (mimeType.equals(MimeTypes.VIDEO_MV_HEVC)) {
       // Handle decoders that declare support for MV-HEVC via MIME types that aren't video/mv-hevc.
-      if ("c2.qti.mvhevc.decoder".equals(name)) {
+      if ("c2.qti.mvhevc.decoder".equals(name) || "c2.qti.mvhevc.decoder.secure".equals(name)) {
         return "video/x-mvhevc";
       }
     } else if (mimeType.equals(MimeTypes.AUDIO_ALAC) && "OMX.lge.alac.decoder".equals(name)) {
@@ -521,15 +564,15 @@ public final class MediaCodecUtil {
     // Work around https://github.com/google/ExoPlayer/issues/3249.
     if (Util.SDK_INT < 24
         && ("OMX.SEC.aac.dec".equals(name) || "OMX.Exynos.AAC.Decoder".equals(name))
-        && "samsung".equals(Util.MANUFACTURER)
-        && (Util.DEVICE.startsWith("zeroflte") // Galaxy S6
-            || Util.DEVICE.startsWith("zerolte") // Galaxy S6 Edge
-            || Util.DEVICE.startsWith("zenlte") // Galaxy S6 Edge+
-            || "SC-05G".equals(Util.DEVICE) // Galaxy S6
-            || "marinelteatt".equals(Util.DEVICE) // Galaxy S6 Active
-            || "404SC".equals(Util.DEVICE) // Galaxy S6 Edge
-            || "SC-04G".equals(Util.DEVICE)
-            || "SCV31".equals(Util.DEVICE))) {
+        && "samsung".equals(Build.MANUFACTURER)
+        && (Build.DEVICE.startsWith("zeroflte") // Galaxy S6
+            || Build.DEVICE.startsWith("zerolte") // Galaxy S6 Edge
+            || Build.DEVICE.startsWith("zenlte") // Galaxy S6 Edge+
+            || "SC-05G".equals(Build.DEVICE) // Galaxy S6
+            || "marinelteatt".equals(Build.DEVICE) // Galaxy S6 Active
+            || "404SC".equals(Build.DEVICE) // Galaxy S6 Edge
+            || "SC-04G".equals(Build.DEVICE)
+            || "SCV31".equals(Build.DEVICE))) {
       return false;
     }
 
@@ -553,7 +596,7 @@ public final class MediaCodecUtil {
   private static void applyWorkarounds(String mimeType, List<MediaCodecInfo> decoderInfos) {
     if (MimeTypes.AUDIO_RAW.equals(mimeType)) {
       if (Util.SDK_INT < 26
-          && Util.DEVICE.equals("R9")
+          && Build.DEVICE.equals("R9")
           && decoderInfos.size() == 1
           && decoderInfos.get(0).name.equals("OMX.MTK.AUDIO.DECODER.RAW")) {
         // This device does not list a generic raw audio decoder, yet it can be instantiated by
@@ -759,9 +802,10 @@ public final class MediaCodecUtil {
 
     @Nullable private android.media.MediaCodecInfo[] mediaCodecInfos;
 
-    public MediaCodecListCompatV21(boolean includeSecure, boolean includeTunneling) {
+    public MediaCodecListCompatV21(
+        boolean includeSecure, boolean includeTunneling, boolean includeSpecialCodec) {
       codecKind =
-          includeSecure || includeTunneling
+          includeSecure || includeTunneling || includeSpecialCodec
               ? MediaCodecList.ALL_CODECS
               : MediaCodecList.REGULAR_CODECS;
     }

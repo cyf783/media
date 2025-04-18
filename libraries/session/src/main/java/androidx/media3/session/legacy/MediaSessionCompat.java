@@ -66,6 +66,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.RestrictTo;
+import androidx.media3.common.audio.AudioManagerCompat;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo;
@@ -441,9 +442,7 @@ public class MediaSessionCompat {
     if (mbrComponent == null) {
       mbrComponent = MediaButtonReceiver.getMediaButtonReceiverComponent(context);
       if (mbrComponent == null) {
-        Log.w(
-            TAG,
-            "Couldn't find a unique registered media button receiver in the " + "given context.");
+        Log.i(TAG, "Couldn't find a unique registered media button receiver in the given context.");
       }
     }
     if (mbrComponent != null && mbrIntent == null) {
@@ -552,7 +551,7 @@ public class MediaSessionCompat {
    *
    * @param pi The intent to launch to show UI for this Session.
    */
-  public void setSessionActivity(PendingIntent pi) {
+  public void setSessionActivity(@Nullable PendingIntent pi) {
     mImpl.setSessionActivity(pi);
   }
 
@@ -2128,7 +2127,7 @@ public class MediaSessionCompat {
 
     @Override
     public String toString() {
-      return "MediaSession.QueueItem {" + "Description=" + mDescription + ", Id=" + mId + " }";
+      return "MediaSession.QueueItem { Description=" + mDescription + ", Id=" + mId + " }";
     }
 
     @RequiresApi(21)
@@ -2221,7 +2220,7 @@ public class MediaSessionCompat {
 
     void setMetadata(@Nullable MediaMetadataCompat metadata);
 
-    void setSessionActivity(PendingIntent pi);
+    void setSessionActivity(@Nullable PendingIntent pi);
 
     void setMediaButtonReceiver(@Nullable PendingIntent mbr);
 
@@ -2337,7 +2336,7 @@ public class MediaSessionCompat {
       }
       mContext = context;
       mSessionInfo = sessionInfo;
-      mAudioManager = (AudioManager) checkNotNull(context.getSystemService(Context.AUDIO_SERVICE));
+      mAudioManager = AudioManagerCompat.getAudioManager(context);
       mMediaButtonReceiverComponentName = mbrComponent;
       mMediaButtonReceiverIntent = mbrIntent;
       mStub = new MediaSessionStub(/* mediaSessionImpl= */ this, context.getPackageName(), tag);
@@ -2702,7 +2701,7 @@ public class MediaSessionCompat {
     }
 
     @Override
-    public void setSessionActivity(PendingIntent pi) {
+    public void setSessionActivity(@Nullable PendingIntent pi) {
       synchronized (mLock) {
         mSessionActivity = pi;
       }
@@ -3669,7 +3668,7 @@ public class MediaSessionCompat {
             break;
           case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
           case KeyEvent.KEYCODE_HEADSETHOOK:
-            Log.w(TAG, "KEYCODE_MEDIA_PLAY_PAUSE and KEYCODE_HEADSETHOOK are handled" + " already");
+            Log.w(TAG, "KEYCODE_MEDIA_PLAY_PAUSE and KEYCODE_HEADSETHOOK are handled already");
             break;
         }
       }
@@ -4055,7 +4054,7 @@ public class MediaSessionCompat {
     }
 
     @Override
-    public void setSessionActivity(PendingIntent pi) {
+    public void setSessionActivity(@Nullable PendingIntent pi) {
       mSessionFwk.setSessionActivity(pi);
     }
 

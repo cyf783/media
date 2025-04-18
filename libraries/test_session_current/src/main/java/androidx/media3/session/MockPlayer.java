@@ -53,6 +53,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 /** A mock implementation of {@link Player} for testing. */
@@ -371,7 +372,7 @@ public class MockPlayer implements Player {
     commands = new Player.Commands.Builder().addAllCommands().build();
 
     currentTracks = Tracks.EMPTY;
-    trackSelectionParameters = TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT;
+    trackSelectionParameters = TrackSelectionParameters.DEFAULT;
   }
 
   @Override
@@ -574,7 +575,7 @@ public class MockPlayer implements Player {
   }
 
   public void notifyAvailableCommandsChanged(Commands commands) {
-    if (Util.areEqual(this.commands, commands)) {
+    if (Objects.equals(this.commands, commands)) {
       return;
     }
     this.commands = commands;
@@ -665,7 +666,7 @@ public class MockPlayer implements Player {
   }
 
   public void notifyPlaybackParametersChanged(PlaybackParameters playbackParameters) {
-    if (Util.areEqual(this.playbackParameters, playbackParameters)) {
+    if (Objects.equals(this.playbackParameters, playbackParameters)) {
       return;
     }
     this.playbackParameters = playbackParameters;

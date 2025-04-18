@@ -29,6 +29,7 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.Settings.Global;
 import android.util.Pair;
 import android.util.SparseArray;
@@ -39,6 +40,7 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.audio.AudioManagerCompat;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.common.collect.ImmutableList;
@@ -49,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /** Represents the set of audio formats that a device is capable of playing. */
@@ -140,8 +143,7 @@ public final class AudioCapabilities {
       @Nullable Intent intent,
       AudioAttributes audioAttributes,
       @Nullable AudioDeviceInfoApi23 routedDevice) {
-    AudioManager audioManager =
-        (AudioManager) checkNotNull(context.getSystemService(Context.AUDIO_SERVICE));
+    AudioManager audioManager = AudioManagerCompat.getAudioManager(context);
     AudioDeviceInfoApi23 currentDevice =
         routedDevice != null
             ? routedDevice
@@ -368,7 +370,7 @@ public final class AudioCapabilities {
   }
 
   private static boolean deviceMaySetExternalSurroundSoundGlobalSetting() {
-    return "Amazon".equals(Util.MANUFACTURER) || "Xiaomi".equals(Util.MANUFACTURER);
+    return Build.MANUFACTURER.equals("Amazon") || Build.MANUFACTURER.equals("Xiaomi");
   }
 
   private static int getChannelConfigForPassthrough(int channelCount) {
@@ -386,7 +388,7 @@ public final class AudioCapabilities {
 
     // Workaround for Nexus Player not reporting support for mono passthrough. See
     // [Internal: b/34268671].
-    if (Util.SDK_INT <= 26 && "fugu".equals(Util.DEVICE) && channelCount == 1) {
+    if (Util.SDK_INT <= 26 && "fugu".equals(Build.DEVICE) && channelCount == 1) {
       channelCount = 2;
     }
 
@@ -516,7 +518,7 @@ public final class AudioCapabilities {
       AudioProfile audioProfile = (AudioProfile) other;
       return encoding == audioProfile.encoding
           && maxChannelCount == audioProfile.maxChannelCount
-          && Util.areEqual(channelMasks, audioProfile.channelMasks);
+          && Objects.equals(channelMasks, audioProfile.channelMasks);
     }
 
     @Override

@@ -34,22 +34,22 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.media.Image;
+import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
-import android.media.MediaFormat;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
-import android.util.Pair;
+import android.os.Build;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.GlTextureInfo;
+import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.GlRect;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.common.util.Size;
 import androidx.media3.common.util.Util;
 import androidx.media3.effect.ByteBufferGlEffect;
@@ -58,8 +58,9 @@ import androidx.media3.effect.GlEffect;
 import androidx.media3.effect.GlShaderProgram;
 import androidx.media3.effect.PassthroughShaderProgram;
 import androidx.media3.effect.ScaleAndRotateTransformation;
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
-import androidx.media3.muxer.Muxer;
+import androidx.media3.muxer.MuxerException;
 import androidx.media3.test.utils.BitmapPixelTestUtil;
 import androidx.media3.test.utils.VideoDecodingWrapper;
 import com.google.common.base.Ascii;
@@ -69,6 +70,8 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -256,6 +259,31 @@ public final class AndroidTestUtil {
                   .setFrameRate(29.97f)
                   .build())
           .build();
+
+  /** This file contains an edit lists that adds one second to all video frames. */
+  public static final AssetInfo MP4_POSITIVE_SHIFT_EDIT_LIST =
+      new AssetInfo.Builder("asset:///media/mp4/edit_list_positive_shift.mp4")
+          .setVideoFormat(
+              new Format.Builder()
+                  .setSampleMimeType(VIDEO_H264)
+                  .setWidth(1920)
+                  .setHeight(1080)
+                  .setFrameRate(30.f)
+                  .build())
+          .build();
+
+  /** This file contains an edit lists that subtacts 1 second to all video frames. */
+  public static final AssetInfo MP4_NEGATIVE_SHIFT_EDIT_LIST =
+      new AssetInfo.Builder("asset:///media/mp4/edit_list_negative_shift.mp4")
+          .setVideoFormat(
+              new Format.Builder()
+                  .setSampleMimeType(VIDEO_H264)
+                  .setWidth(1920)
+                  .setHeight(1080)
+                  .setFrameRate(30.f)
+                  .build())
+          .build();
+
   public static final AssetInfo MP4_TRIM_OPTIMIZATION_270 =
       new AssetInfo.Builder(
               "asset:///media/mp4/internal_emulator_transformer_output_270_rotated.mp4")
@@ -358,6 +386,28 @@ public final class AndroidTestUtil {
                   .setHeight(1080)
                   .setFrameRate(29.97f)
                   .setCodecs("avc1.64001F")
+                  .build())
+          .build();
+
+  public static final AssetInfo MP4_ASSET_H264_1080P_10SEC_VIDEO =
+      new AssetInfo.Builder("asset:///media/mp4/h264_1080p_30fps_10sec.mp4")
+          .setVideoFormat(
+              new Format.Builder()
+                  .setSampleMimeType(VIDEO_H264)
+                  .setWidth(1080)
+                  .setHeight(720)
+                  .setFrameRate(30.0f)
+                  .build())
+          .build();
+
+  public static final AssetInfo MP4_ASSET_H264_4K_10SEC_VIDEO =
+      new AssetInfo.Builder("asset:///media/mp4/h264_4k_30fps_10sec.mp4")
+          .setVideoFormat(
+              new Format.Builder()
+                  .setSampleMimeType(VIDEO_H264)
+                  .setWidth(3840)
+                  .setHeight(2160)
+                  .setFrameRate(30.0f)
                   .build())
           .build();
 
@@ -489,6 +539,24 @@ public final class AndroidTestUtil {
 
   public static final AssetInfo MP4_ASSET_1080P_5_SECOND_HLG10 =
       new AssetInfo.Builder("asset:///media/mp4/hlg-1080p.mp4")
+          .setVideoFormat(
+              new Format.Builder()
+                  .setSampleMimeType(VIDEO_H265)
+                  .setWidth(1920)
+                  .setHeight(1080)
+                  .setFrameRate(30.000f)
+                  .setColorInfo(
+                      new ColorInfo.Builder()
+                          .setColorSpace(C.COLOR_SPACE_BT2020)
+                          .setColorRange(C.COLOR_RANGE_LIMITED)
+                          .setColorTransfer(C.COLOR_TRANSFER_HLG)
+                          .build())
+                  .setCodecs("hvc1.2.4.L153")
+                  .build())
+          .build();
+
+  public static final AssetInfo MP4_ASSET_COLOR_TEST_1080P_HLG10 =
+      new AssetInfo.Builder("asset:///media/mp4/hlg10-color-test.mp4")
           .setVideoFormat(
               new Format.Builder()
                   .setSampleMimeType(VIDEO_H265)
@@ -977,8 +1045,15 @@ public final class AndroidTestUtil {
   public static final AssetInfo MP3_ASSET =
       new AssetInfo.Builder("asset:///media/mp3/test-cbr-info-header.mp3").build();
 
+  // This file contains 1 second of audio at 44.1kHZ.
   public static final AssetInfo WAV_ASSET =
       new AssetInfo.Builder("asset:///media/wav/sample.wav").build();
+
+  public static final AssetInfo WAV_96KHZ_ASSET =
+      new AssetInfo.Builder("asset:///media/wav/sample_96khz.wav").build();
+
+  public static final AssetInfo WAV_192KHZ_ASSET =
+      new AssetInfo.Builder("asset:///media/wav/sample_192khz.wav").build();
 
   /** A {@link GlEffect} that adds delay in the video pipeline by putting the thread to sleep. */
   public static final class DelayEffect implements GlEffect {
@@ -1073,7 +1148,7 @@ public final class AndroidTestUtil {
       throws IOException, InterruptedException {
     // b/298599172 - runUntilComparisonFrameOrEnded fails on this device because reading decoder
     //  output as a bitmap doesn't work.
-    assumeFalse(Util.SDK_INT == 21 && Ascii.toLowerCase(Util.MODEL).contains("nexus"));
+    assumeFalse(Util.SDK_INT == 21 && Ascii.toLowerCase(Build.MODEL).contains("nexus"));
     ImmutableList.Builder<Bitmap> bitmaps = new ImmutableList.Builder<>();
     try (VideoDecodingWrapper decodingWrapper =
         new VideoDecodingWrapper(
@@ -1150,6 +1225,87 @@ public final class AndroidTestUtil {
     }
   }
 
+  /** A {@link Muxer.Factory} that creates {@link FrameBlockingMuxer} instances. */
+  public static final class FrameBlockingMuxerFactory implements Muxer.Factory {
+    private final Muxer.Factory wrappedMuxerFactory;
+    private final FrameBlockingMuxer.Listener listener;
+    private final long presentationTimeUsToBlockFrame;
+
+    FrameBlockingMuxerFactory(
+        long presentationTimeUsToBlockFrame, FrameBlockingMuxer.Listener listener) {
+      this.wrappedMuxerFactory = new DefaultMuxer.Factory();
+      this.listener = listener;
+      this.presentationTimeUsToBlockFrame = presentationTimeUsToBlockFrame;
+    }
+
+    @Override
+    public Muxer create(String path) throws MuxerException {
+      return new FrameBlockingMuxer(
+          wrappedMuxerFactory.create(path), presentationTimeUsToBlockFrame, listener);
+    }
+
+    @Override
+    public ImmutableList<String> getSupportedSampleMimeTypes(@C.TrackType int trackType) {
+      return wrappedMuxerFactory.getSupportedSampleMimeTypes(trackType);
+    }
+  }
+
+  /** A {@link Muxer} that blocks writing video frames after a specific presentation timestamp. */
+  public static final class FrameBlockingMuxer implements Muxer {
+    interface Listener {
+      void onFrameBlocked();
+    }
+
+    private final Muxer wrappedMuxer;
+    private final FrameBlockingMuxer.Listener listener;
+    private final long presentationTimeUsToBlockFrame;
+
+    private boolean notifiedListener;
+    private int videoTrackId;
+
+    private FrameBlockingMuxer(
+        Muxer wrappedMuxer,
+        long presentationTimeUsToBlockFrame,
+        FrameBlockingMuxer.Listener listener) {
+      this.wrappedMuxer = wrappedMuxer;
+      this.listener = listener;
+      this.presentationTimeUsToBlockFrame = presentationTimeUsToBlockFrame;
+    }
+
+    @Override
+    public int addTrack(Format format) throws MuxerException {
+      int trackId = wrappedMuxer.addTrack(format);
+      if (MimeTypes.isVideo(format.sampleMimeType)) {
+        videoTrackId = trackId;
+      }
+      return trackId;
+    }
+
+    @Override
+    public void writeSampleData(int trackId, ByteBuffer data, MediaCodec.BufferInfo bufferInfo)
+        throws MuxerException {
+      if (trackId == videoTrackId
+          && bufferInfo.presentationTimeUs >= presentationTimeUsToBlockFrame) {
+        if (!notifiedListener) {
+          listener.onFrameBlocked();
+          notifiedListener = true;
+        }
+        return;
+      }
+      wrappedMuxer.writeSampleData(trackId, data, bufferInfo);
+    }
+
+    @Override
+    public void addMetadataEntry(Metadata.Entry metadataEntry) {
+      wrappedMuxer.addMetadataEntry(metadataEntry);
+    }
+
+    @Override
+    public void close() throws MuxerException {
+      wrappedMuxer.close();
+    }
+  }
+
   /**
    * Implementation of {@link ByteBufferGlEffect.Processor} that counts how many frames are copied
    * to CPU memory.
@@ -1211,10 +1367,26 @@ public final class AndroidTestUtil {
       Log.i(TAG, testId + ": " + line);
     }
 
-    File analysisFile = createExternalCacheFile(context, /* fileName= */ testId + "-result.txt");
+    File analysisFile =
+        createExternalCacheFile(
+            context, /* directoryName= */ "analysis", /* fileName= */ testId + "-result.txt");
     try (FileWriter fileWriter = new FileWriter(analysisFile)) {
       fileWriter.write(analysisContents);
     }
+  }
+
+  /**
+   * Assumes that the device supports decoding the input format, and encoding/muxing the output
+   * format if needed.
+   *
+   * <p>This is equivalent to calling {@link #assumeFormatsSupported(Context, String, Format,
+   * Format, boolean)} with {@code isPortraitEncodingEnabled} set to {@code false}.
+   */
+  public static void assumeFormatsSupported(
+      Context context, String testId, @Nullable Format inputFormat, @Nullable Format outputFormat)
+      throws IOException, JSONException, MediaCodecUtil.DecoderQueryException {
+    assumeFormatsSupported(
+        context, testId, inputFormat, outputFormat, /* isPortraitEncodingEnabled= */ false);
   }
 
   /**
@@ -1227,16 +1399,20 @@ public final class AndroidTestUtil {
    *     MediaCodec, like an image.
    * @param outputFormat The {@link Format format} to encode/mux or {@code null} if the output won't
    *     be encoded or muxed.
+   * @param isPortraitEncodingEnabled Whether portrait encoding is enabled.
    * @throws AssumptionViolatedException If the device does not support the formats. In this case,
    *     the reason for skipping the test is logged.
    */
   public static void assumeFormatsSupported(
-      Context context, String testId, @Nullable Format inputFormat, @Nullable Format outputFormat)
+      Context context,
+      String testId,
+      @Nullable Format inputFormat,
+      @Nullable Format outputFormat,
+      boolean isPortraitEncodingEnabled)
       throws IOException, JSONException, MediaCodecUtil.DecoderQueryException {
-    // TODO(b/278657595): Make this capability check match the default codec factory selection code.
     boolean canDecode = inputFormat == null || canDecode(inputFormat);
 
-    boolean canEncode = outputFormat == null || canEncode(outputFormat);
+    boolean canEncode = outputFormat == null || canEncode(outputFormat, isPortraitEncodingEnabled);
     boolean canMux = outputFormat == null || canMux(outputFormat);
     if (canDecode && canEncode && canMux) {
       return;
@@ -1282,24 +1458,42 @@ public final class AndroidTestUtil {
   /** Returns a {@link Muxer.Factory} depending upon the API level. */
   public static Muxer.Factory getMuxerFactoryBasedOnApi() {
     // MediaMuxer supports B-frame from API > 24.
-    return SDK_INT > 24 ? new DefaultMuxer.Factory() : new InAppMuxer.Factory.Builder().build();
+    return SDK_INT > 24 ? new DefaultMuxer.Factory() : new InAppMp4Muxer.Factory();
   }
 
-  private static boolean canDecode(Format format) {
+  private static boolean canDecode(Format format) throws MediaCodecUtil.DecoderQueryException {
     if (MimeTypes.isImage(format.sampleMimeType)) {
       return Util.isBitmapFactorySupportedMimeType(format.sampleMimeType);
     }
 
     // Check decoding capability in the same way as the default decoder factory.
-    MediaFormat mediaFormat = MediaFormatUtil.createMediaFormatFromFormat(format);
-    @Nullable
-    Pair<Integer, Integer> codecProfileAndLevel = MediaCodecUtil.getCodecProfileAndLevel(format);
-    if (codecProfileAndLevel != null) {
-      MediaFormatUtil.maybeSetInteger(
-          mediaFormat, MediaFormat.KEY_PROFILE, codecProfileAndLevel.first);
+    return findDecoderForFormat(format) != null && !deviceNeedsDisable8kWorkaround(format);
+  }
+
+  @Nullable
+  private static String findDecoderForFormat(Format format)
+      throws MediaCodecUtil.DecoderQueryException {
+    List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> decoderInfoList =
+        MediaCodecUtil.getDecoderInfosSortedByFullFormatSupport(
+            MediaCodecUtil.getDecoderInfosSoftMatch(
+                MediaCodecSelector.DEFAULT,
+                format,
+                /* requiresSecureDecoder= */ false,
+                /* requiresTunnelingDecoder= */ false),
+            format);
+
+    for (int i = 0; i < decoderInfoList.size(); i++) {
+      androidx.media3.exoplayer.mediacodec.MediaCodecInfo decoderInfo = decoderInfoList.get(i);
+      // On some devices this method can return false even when the format can be decoded. For
+      // example, Pixel 6a can decode an 8K video but this method returns false. The
+      // DefaultDecoderFactory does not rely on this method rather it directly initialize the
+      // decoder. See b/222095724#comment9.
+      if (decoderInfo.isFormatSupported(format)) {
+        return decoderInfo.name;
+      }
     }
-    return EncoderUtil.findCodecForFormat(mediaFormat, /* isDecoder= */ true) != null
-        && !deviceNeedsDisable8kWorkaround(format);
+
+    return null;
   }
 
   private static boolean deviceNeedsDisable8kWorkaround(Format format) {
@@ -1310,11 +1504,11 @@ public final class AndroidTestUtil {
         && format.height >= 4320
         && format.sampleMimeType != null
         && format.sampleMimeType.equals(MimeTypes.VIDEO_H265)
-        && (Ascii.equalsIgnoreCase(Util.MODEL, "SM-F711U1")
-            || Ascii.equalsIgnoreCase(Util.MODEL, "SM-F926U1"));
+        && (Ascii.equalsIgnoreCase(Build.MODEL, "SM-F711U1")
+            || Ascii.equalsIgnoreCase(Build.MODEL, "SM-F926U1"));
   }
 
-  private static boolean canEncode(Format format) {
+  private static boolean canEncode(Format format, boolean isPortraitEncodingEnabled) {
     String mimeType = checkNotNull(format.sampleMimeType);
     ImmutableList<android.media.MediaCodecInfo> supportedEncoders =
         EncoderUtil.getSupportedEncoders(mimeType);
@@ -1323,11 +1517,11 @@ public final class AndroidTestUtil {
     }
 
     android.media.MediaCodecInfo encoder = supportedEncoders.get(0);
-    // VideoSampleExporter rotates videos into landscape before encoding.
-    // Check if the encoder supports the video dimensions after rotating to landscape.
+    // VideoSampleExporter rotates videos into landscape before encoding if portrait encoding is not
+    // enabled.
     int width = format.width;
     int height = format.height;
-    if (width < height) {
+    if (!isPortraitEncodingEnabled && width < height) {
       width = format.height;
       height = format.width;
     }
@@ -1350,10 +1544,30 @@ public final class AndroidTestUtil {
    * Creates a {@link File} of the {@code fileName} in the application cache directory.
    *
    * <p>If a file of that name already exists, it is overwritten.
+   *
+   * @param context The {@link Context}.
+   * @param fileName The filename to save to the cache.
    */
   /* package */ static File createExternalCacheFile(Context context, String fileName)
       throws IOException {
-    File file = new File(context.getExternalCacheDir(), fileName);
+    return createExternalCacheFile(context, /* directoryName= */ "", fileName);
+  }
+
+  /**
+   * Creates a {@link File} of the {@code fileName} in a directory {@code directoryName} within the
+   * application cache directory.
+   *
+   * <p>If a file of that name already exists, it is overwritten.
+   *
+   * @param context The {@link Context}.
+   * @param directoryName The directory name within the external cache to save the file in.
+   * @param fileName The filename to save to the cache.
+   */
+  /* package */ static File createExternalCacheFile(
+      Context context, String directoryName, String fileName) throws IOException {
+    File fileDirectory = new File(context.getExternalCacheDir(), directoryName);
+    fileDirectory.mkdirs();
+    File file = new File(fileDirectory, fileName);
     checkState(!file.exists() || file.delete(), "Could not delete file: " + file.getAbsolutePath());
     checkState(file.createNewFile(), "Could not create file: " + file.getAbsolutePath());
     return file;

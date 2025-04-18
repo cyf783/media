@@ -21,6 +21,7 @@ import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_LINEAR;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_METADATA;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_ORIGINAL;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_UNDEFINED;
+import static androidx.media3.common.Player.COMMAND_GET_TIMELINE;
 import static androidx.media3.common.Player.COMMAND_PLAY_PAUSE;
 import static androidx.media3.common.Player.COMMAND_PREPARE;
 import static androidx.media3.common.Player.COMMAND_SEEK_BACK;
@@ -83,6 +84,7 @@ import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.C.ContentType;
 import androidx.media3.common.Format;
@@ -93,6 +95,7 @@ import androidx.media3.common.ParserException;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Player.Commands;
+import androidx.media3.common.audio.AudioManagerCompat;
 import androidx.media3.common.audio.AudioProcessor;
 import com.google.common.base.Ascii;
 import com.google.common.io.ByteStreams;
@@ -158,27 +161,24 @@ public final class Util {
   @UnstableApi public static final int SDK_INT = Build.VERSION.SDK_INT;
 
   /**
-   * Like {@link Build#DEVICE}, but in a place where it can be conveniently overridden for local
-   * testing.
+   * @deprecated Use {@link Build#DEVICE} instead.
    */
-  @UnstableApi public static final String DEVICE = Build.DEVICE;
+  @UnstableApi @Deprecated public static final String DEVICE = Build.DEVICE;
 
   /**
-   * Like {@link Build#MANUFACTURER}, but in a place where it can be conveniently overridden for
-   * local testing.
+   * @deprecated Use {@link Build#MANUFACTURER} instead.
    */
-  @UnstableApi public static final String MANUFACTURER = Build.MANUFACTURER;
+  @UnstableApi @Deprecated public static final String MANUFACTURER = Build.MANUFACTURER;
 
   /**
-   * Like {@link Build#MODEL}, but in a place where it can be conveniently overridden for local
-   * testing.
+   * @deprecated Use {@link Build#MODEL} instead.
    */
-  @UnstableApi public static final String MODEL = Build.MODEL;
+  @UnstableApi @Deprecated public static final String MODEL = Build.MODEL;
 
   /** A concise description of the device that it can be useful to log for debugging purposes. */
   @UnstableApi
   public static final String DEVICE_DEBUG_INFO =
-      DEVICE + ", " + MODEL + ", " + MANUFACTURER + ", " + SDK_INT;
+      Build.DEVICE + ", " + Build.MODEL + ", " + Build.MANUFACTURER + ", " + SDK_INT;
 
   /** An empty byte array. */
   @UnstableApi public static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
@@ -203,6 +203,8 @@ public final class Util {
       Pattern.compile("(?:.*\\.)?isml?(?:/(manifest(.*))?)?", Pattern.CASE_INSENSITIVE);
   private static final String ISM_HLS_FORMAT_EXTENSION = "format=m3u8-aapl";
   private static final String ISM_DASH_FORMAT_EXTENSION = "format=mpd-time-csf";
+
+  private static final int ZLIB_INFLATE_HEADER = 0x78;
 
   // Replacement map of ISO language codes used for normalization.
   @Nullable private static HashMap<String, String> languageTagReplacementMap;
@@ -472,7 +474,7 @@ public final class Util {
   /** Returns true if the code path is currently running on an emulator. */
   @UnstableApi
   public static boolean isRunningOnEmulator() {
-    String deviceName = Ascii.toLowerCase(Util.DEVICE);
+    String deviceName = Ascii.toLowerCase(Build.DEVICE);
     return deviceName.contains("emulator")
         || deviceName.contains("emu64a")
         || deviceName.contains("emu64x")
@@ -562,7 +564,7 @@ public final class Util {
   @UnstableApi
   public static boolean contains(@NullableType Object[] items, @Nullable Object item) {
     for (Object arrayItem : items) {
-      if (areEqual(arrayItem, item)) {
+      if (Objects.equals(arrayItem, item)) {
         return true;
       }
     }
@@ -794,7 +796,7 @@ public final class Util {
     if (!looper.getThread().isAlive()) {
       return false;
     }
-    if (handler.getLooper() == Looper.myLooper()) {
+    if (looper == Looper.myLooper()) {
       runnable.run();
       return true;
     } else {
@@ -2118,6 +2120,33 @@ public final class Util {
   }
 
   /**
+   * Returns a copy of {@code codecs} without the codecs whose track type matches {@code trackType}.
+   *
+   * @param codecs A codec sequence string, as defined in RFC 6381.
+   * @param trackType The {@link C.TrackType track type}.
+   * @return A copy of {@code codecs} without the codecs whose track type matches {@code trackType}.
+   *     If this ends up empty, or {@code codecs} is null, returns null.
+   */
+  @UnstableApi
+  @Nullable
+  public static String getCodecsWithoutType(@Nullable String codecs, @C.TrackType int trackType) {
+    String[] codecArray = splitCodecs(codecs);
+    if (codecArray.length == 0) {
+      return null;
+    }
+    StringBuilder builder = new StringBuilder();
+    for (String codec : codecArray) {
+      if (trackType != MimeTypes.getTrackTypeOfCodec(codec)) {
+        if (builder.length() > 0) {
+          builder.append(",");
+        }
+        builder.append(codec);
+      }
+    }
+    return builder.length() > 0 ? builder.toString() : null;
+  }
+
+  /**
    * Splits a codecs sequence string, as defined in RFC 6381, into individual codec strings.
    *
    * @param codecs A codec sequence string, as defined in RFC 6381.
@@ -2381,6 +2410,8 @@ public final class Util {
         return C.USAGE_ASSISTANCE_SONIFICATION;
       case C.STREAM_TYPE_VOICE_CALL:
         return C.USAGE_VOICE_COMMUNICATION;
+      case C.STREAM_TYPE_ACCESSIBILITY:
+        return C.USAGE_ASSISTANCE_ACCESSIBILITY;
       case C.STREAM_TYPE_MUSIC:
       default:
         return C.USAGE_MEDIA;
@@ -2403,6 +2434,7 @@ public final class Util {
       case C.STREAM_TYPE_SYSTEM:
         return C.AUDIO_CONTENT_TYPE_SONIFICATION;
       case C.STREAM_TYPE_VOICE_CALL:
+      case C.STREAM_TYPE_ACCESSIBILITY:
         return C.AUDIO_CONTENT_TYPE_SPEECH;
       case C.STREAM_TYPE_MUSIC:
       default:
@@ -2410,7 +2442,10 @@ public final class Util {
     }
   }
 
-  /** Returns the {@link C.StreamType} corresponding to the specified {@link C.AudioUsage}. */
+  /**
+   * @deprecated Use {@link AudioAttributes#getStreamType()} instead.
+   */
+  @Deprecated
   @UnstableApi
   public static @C.StreamType int getStreamTypeForAudioUsage(@C.AudioUsage int usage) {
     switch (usage) {
@@ -2435,6 +2470,7 @@ public final class Util {
       case C.USAGE_NOTIFICATION_EVENT:
         return C.STREAM_TYPE_NOTIFICATION;
       case C.USAGE_ASSISTANCE_ACCESSIBILITY:
+        return C.STREAM_TYPE_ACCESSIBILITY;
       case C.USAGE_ASSISTANT:
       case C.USAGE_UNKNOWN:
       default:
@@ -2450,9 +2486,7 @@ public final class Util {
    */
   @UnstableApi
   public static int generateAudioSessionIdV21(Context context) {
-    @Nullable
-    AudioManager audioManager = ((AudioManager) context.getSystemService(Context.AUDIO_SERVICE));
-    return audioManager == null ? AudioManager.ERROR : audioManager.generateAudioSessionId();
+    return AudioManagerCompat.getAudioManager(context).generateAudioSessionId();
   }
 
   /**
@@ -2536,7 +2570,8 @@ public final class Util {
    */
   public static @ContentType int inferContentType(Uri uri) {
     @Nullable String scheme = uri.getScheme();
-    if (scheme != null && Ascii.equalsIgnoreCase("rtsp", scheme)) {
+    if (scheme != null
+        && (Ascii.equalsIgnoreCase("rtsp", scheme) || Ascii.equalsIgnoreCase("rtspt", scheme))) {
       return C.CONTENT_TYPE_RTSP;
     }
 
@@ -3061,6 +3096,26 @@ public final class Util {
   }
 
   /**
+   * Uncompresses the data in {@code input} if it starts with the zlib marker {@code 0x78}.
+   *
+   * @param input Wraps the compressed input data.
+   * @param output Wraps an output buffer to be used to store the uncompressed data. If {@code
+   *     output.data} isn't big enough to hold the uncompressed data, a new array is created. If
+   *     {@code true} is returned then the output's position will be set to 0 and its limit will be
+   *     set to the length of the uncompressed data.
+   * @param inflater If not null, used to uncompress the input. Otherwise a new {@link Inflater} is
+   *     created.
+   * @return Whether the input is uncompressed successfully.
+   */
+  @UnstableApi
+  public static boolean maybeInflate(
+      ParsableByteArray input, ParsableByteArray output, @Nullable Inflater inflater) {
+    return input.bytesLeft() > 0
+        && input.peekUnsignedByte() == ZLIB_INFLATE_HEADER
+        && inflate(input, output, inflater);
+  }
+
+  /**
    * Returns whether the app is running on a TV device.
    *
    * @param context Any context.
@@ -3181,8 +3236,8 @@ public final class Util {
       }
 
       // Sony Android TVs advertise support for 4k output via a system feature.
-      if ("Sony".equals(MANUFACTURER)
-          && MODEL.startsWith("BRAVIA")
+      if ("Sony".equals(Build.MANUFACTURER)
+          && Build.MODEL.startsWith("BRAVIA")
           && context.getPackageManager().hasSystemFeature("com.sony.dtv.hardware.panel.qfhd")) {
         return new Point(3840, 2160);
       }
@@ -3268,6 +3323,7 @@ public final class Util {
     if ((selectionFlags & C.SELECTION_FLAG_FORCED) != 0) {
       result.add("forced");
     }
+    // LINT.ThenChange()
     return result;
   }
 
@@ -3327,6 +3383,7 @@ public final class Util {
     if ((roleFlags & C.ROLE_FLAG_AUXILIARY) != 0) {
       result.add("auxiliary");
     }
+    // LINT.ThenChange()
     return result;
   }
 
@@ -3347,6 +3404,7 @@ public final class Util {
         return "depth metadata";
       default:
         throw new IllegalStateException("Unsupported auxiliary track type");
+        // LINT.ThenChange()
     }
   }
 
@@ -3431,9 +3489,9 @@ public final class Util {
     return SDK_INT < 29
         || context.getApplicationInfo().targetSdkVersion < 29
         || ((SDK_INT == 30
-                && (Ascii.equalsIgnoreCase(MODEL, "moto g(20)")
-                    || Ascii.equalsIgnoreCase(MODEL, "rmx3231")))
-            || (SDK_INT == 34 && Ascii.equalsIgnoreCase(MODEL, "sm-x200")));
+                && (Ascii.equalsIgnoreCase(Build.MODEL, "moto g(20)")
+                    || Ascii.equalsIgnoreCase(Build.MODEL, "rmx3231")))
+            || (SDK_INT == 34 && Ascii.equalsIgnoreCase(Build.MODEL, "sm-x200")));
   }
 
   /**
@@ -3564,6 +3622,20 @@ public final class Util {
   @UnstableApi
   public static String intToStringMaxRadix(int i) {
     return Integer.toString(i, Character.MAX_RADIX);
+  }
+
+  /**
+   * Returns whether a play-pause button should be enabled or not.
+   *
+   * @param player The {@link Player}. May be {@code null}.
+   */
+  @EnsuresNonNullIf(result = true, expression = "#1")
+  @UnstableApi
+  public static boolean shouldEnablePlayPauseButton(@Nullable Player player) {
+    return player != null
+        && player.isCommandAvailable(COMMAND_PLAY_PAUSE)
+        && (!player.isCommandAvailable(COMMAND_GET_TIMELINE)
+            || !player.getCurrentTimeline().isEmpty());
   }
 
   /**

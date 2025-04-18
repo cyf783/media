@@ -31,8 +31,10 @@ import android.os.Handler;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.AudioAttributes;
+import androidx.media3.common.audio.AudioManagerCompat;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import java.util.Objects;
 
 /**
  * Receives broadcast events indicating changes to the device's audio capabilities, notifying a
@@ -132,7 +134,7 @@ public final class AudioCapabilitiesReceiver {
    */
   @RequiresApi(23)
   public void setRoutedDevice(@Nullable AudioDeviceInfo routedDevice) {
-    if (Util.areEqual(
+    if (Objects.equals(
         routedDevice, this.routedDevice == null ? null : this.routedDevice.audioDeviceInfo)) {
       return;
     }
@@ -260,14 +262,12 @@ public final class AudioCapabilitiesReceiver {
 
     public static void registerAudioDeviceCallback(
         Context context, AudioDeviceCallback callback, Handler handler) {
-      AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-      checkNotNull(audioManager).registerAudioDeviceCallback(callback, handler);
+      AudioManagerCompat.getAudioManager(context).registerAudioDeviceCallback(callback, handler);
     }
 
     public static void unregisterAudioDeviceCallback(
         Context context, AudioDeviceCallback callback) {
-      AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-      checkNotNull(audioManager).unregisterAudioDeviceCallback(callback);
+      AudioManagerCompat.getAudioManager(context).unregisterAudioDeviceCallback(callback);
     }
 
     private Api23() {}

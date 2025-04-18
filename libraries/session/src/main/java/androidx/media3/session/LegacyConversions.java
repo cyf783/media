@@ -77,7 +77,6 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.Timeline.Period;
 import androidx.media3.common.Timeline.Window;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaLibraryService.LibraryParams;
 import androidx.media3.session.legacy.AudioAttributesCompat;
 import androidx.media3.session.legacy.MediaBrowserCompat;
@@ -899,6 +898,8 @@ import java.util.concurrent.TimeoutException;
         return metadata.writer;
       case MediaMetadataCompat.METADATA_KEY_COMPOSER:
         return metadata.composer;
+      case MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE:
+        return metadata.subtitle;
       default:
         return null;
     }
@@ -1027,12 +1028,11 @@ import java.util.concurrent.TimeoutException;
 
   /** Converts {@link Player}' states to state of {@link PlaybackStateCompat}. */
   @PlaybackStateCompat.State
-  public static int convertToPlaybackStateCompatState(Player player, boolean playIfSuppressed) {
+  public static int convertToPlaybackStateCompatState(Player player, boolean shouldShowPlayButton) {
     if (player.getPlayerError() != null) {
       return PlaybackStateCompat.STATE_ERROR;
     }
     @Player.State int playbackState = player.getPlaybackState();
-    boolean shouldShowPlayButton = Util.shouldShowPlayButton(player, playIfSuppressed);
     switch (playbackState) {
       case Player.STATE_IDLE:
         return PlaybackStateCompat.STATE_NONE;
@@ -1096,12 +1096,14 @@ import java.util.concurrent.TimeoutException;
     if (playbackStateCompat == null) {
       return Player.STATE_IDLE;
     }
+    boolean isEnded = convertToIsEnded(playbackStateCompat, currentMediaMetadata, timeDiffMs);
     switch (playbackStateCompat.getState()) {
       case PlaybackStateCompat.STATE_CONNECTING:
       case PlaybackStateCompat.STATE_ERROR:
       case PlaybackStateCompat.STATE_NONE:
-      case PlaybackStateCompat.STATE_STOPPED:
         return Player.STATE_IDLE;
+      case PlaybackStateCompat.STATE_STOPPED:
+        return isEnded ? Player.STATE_ENDED : Player.STATE_IDLE;
       case PlaybackStateCompat.STATE_BUFFERING:
       case PlaybackStateCompat.STATE_FAST_FORWARDING:
       case PlaybackStateCompat.STATE_REWINDING:
@@ -1112,13 +1114,7 @@ import java.util.concurrent.TimeoutException;
       case PlaybackStateCompat.STATE_PLAYING:
         return Player.STATE_READY;
       case PlaybackStateCompat.STATE_PAUSED:
-        long duration = convertToDurationMs(currentMediaMetadata);
-        if (duration == C.TIME_UNSET) {
-          return Player.STATE_READY;
-        }
-        long currentPosition =
-            convertToCurrentPositionMs(playbackStateCompat, currentMediaMetadata, timeDiffMs);
-        return (currentPosition < duration) ? Player.STATE_READY : Player.STATE_ENDED;
+        return isEnded ? Player.STATE_ENDED : Player.STATE_READY;
       default:
         throw new ConversionException(
             "Invalid state of PlaybackStateCompat: " + playbackStateCompat.getState());
@@ -1374,8 +1370,9 @@ import java.util.concurrent.TimeoutException;
       boolean isSessionReady) {
     Player.Commands.Builder playerCommandsBuilder = new Player.Commands.Builder();
     long actions = playbackStateCompat == null ? 0 : playbackStateCompat.getActions();
-    if ((hasAction(actions, PlaybackStateCompat.ACTION_PLAY)
-            && hasAction(actions, PlaybackStateCompat.ACTION_PAUSE))
+    boolean playWhenReady = convertToPlayWhenReady(playbackStateCompat);
+    if ((hasAction(actions, PlaybackStateCompat.ACTION_PLAY) && !playWhenReady)
+        || (hasAction(actions, PlaybackStateCompat.ACTION_PAUSE) && playWhenReady)
         || hasAction(actions, PlaybackStateCompat.ACTION_PLAY_PAUSE)) {
       playerCommandsBuilder.add(COMMAND_PLAY_PAUSE);
     }
@@ -1497,10 +1494,14 @@ import java.util.concurrent.TimeoutException;
    * Converts {@link CustomAction} in the {@link PlaybackStateCompat} to media button preferences.
    *
    * @param state The {@link PlaybackStateCompat}.
+   * @param availablePlayerCommands The available {@link Player.Commands}.
+   * @param sessionExtras The {@linkplain MediaControllerCompat#getExtras session-level extras}.
    * @return The media button preferences.
    */
   public static ImmutableList<CommandButton> convertToMediaButtonPreferences(
-      @Nullable PlaybackStateCompat state) {
+      @Nullable PlaybackStateCompat state,
+      Player.Commands availablePlayerCommands,
+      Bundle sessionExtras) {
     if (state == null) {
       return ImmutableList.of();
     }
@@ -1508,7 +1509,7 @@ import java.util.concurrent.TimeoutException;
     if (customActions == null) {
       return ImmutableList.of();
     }
-    ImmutableList.Builder<CommandButton> mediaButtonPreferences = new ImmutableList.Builder<>();
+    ImmutableList.Builder<CommandButton> customLayout = new ImmutableList.Builder<>();
     for (CustomAction customAction : customActions) {
       String action = customAction.getAction();
       @Nullable Bundle extras = customAction.getExtras();
@@ -1519,16 +1520,16 @@ import java.util.concurrent.TimeoutException;
                   MediaConstants.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT,
                   /* defaultValue= */ CommandButton.ICON_UNDEFINED)
               : CommandButton.ICON_UNDEFINED;
-      // TODO: b/332877990 - Set appropriate slots based on available player commands.
       CommandButton button =
           new CommandButton.Builder(icon, customAction.getIcon())
               .setSessionCommand(new SessionCommand(action, extras == null ? Bundle.EMPTY : extras))
               .setDisplayName(customAction.getName())
               .setEnabled(true)
               .build();
-      mediaButtonPreferences.add(button);
+      customLayout.add(button);
     }
-    return mediaButtonPreferences.build();
+    return CommandButton.getMediaButtonPreferencesFromCustomLayout(
+        customLayout.build(), availablePlayerCommands, sessionExtras);
   }
 
   /** Converts {@link AudioAttributesCompat} into {@link AudioAttributes}. */
@@ -1742,6 +1743,19 @@ import java.util.concurrent.TimeoutException;
             androidx.media3.session.legacy.MediaConstants
                 .BROWSER_ROOT_HINTS_KEY_CUSTOM_BROWSER_ACTION_LIMIT,
             /* defaultValue= */ 0));
+  }
+
+  private static boolean convertToIsEnded(
+      PlaybackStateCompat playbackStateCompat,
+      @Nullable MediaMetadataCompat currentMediaMetadata,
+      long timeDiffMs) {
+    long durationMs = convertToDurationMs(currentMediaMetadata);
+    if (durationMs == C.TIME_UNSET) {
+      return false;
+    }
+    long currentPositionMs =
+        convertToCurrentPositionMs(playbackStateCompat, currentMediaMetadata, timeDiffMs);
+    return currentPositionMs >= durationMs;
   }
 
   private static byte[] convertToByteArray(Bitmap bitmap) throws IOException {

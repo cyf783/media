@@ -32,7 +32,6 @@ import static androidx.media3.transformer.MuxerWrapper.MUXER_RELEASE_REASON_CANC
 import static androidx.media3.transformer.MuxerWrapper.MUXER_RELEASE_REASON_COMPLETED;
 import static androidx.media3.transformer.MuxerWrapper.MUXER_RELEASE_REASON_ERROR;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE;
-import static androidx.media3.transformer.Transformer.PROGRESS_STATE_NOT_STARTED;
 import static androidx.media3.transformer.TransformerUtil.getDecoderOutputColor;
 import static androidx.media3.transformer.TransformerUtil.getProcessedTrackType;
 import static androidx.media3.transformer.TransformerUtil.getValidColor;
@@ -65,7 +64,7 @@ import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.common.util.HandlerWrapper;
 import androidx.media3.common.util.Util;
 import androidx.media3.effect.DebugTraceUtil;
-import androidx.media3.muxer.Muxer.MuxerException;
+import androidx.media3.muxer.MuxerException;
 import androidx.media3.transformer.AssetLoader.CompositionSettings;
 import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Documented;
@@ -290,10 +289,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   public @Transformer.ProgressState int getProgress(ProgressHolder progressHolder) {
-    if (released) {
-      return PROGRESS_STATE_NOT_STARTED;
-    }
-
     synchronized (progressLock) {
       if (progressState == PROGRESS_STATE_AVAILABLE) {
         progressHolder.progress = progressValue;
@@ -409,10 +404,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     boolean releasedPreviously = released;
     if (!released) {
       released = true;
-      synchronized (progressLock) {
-        progressState = PROGRESS_STATE_NOT_STARTED;
-        progressValue = 0;
-      }
 
       Log.i(
           TAG,
@@ -538,7 +529,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       int assetLoaderProgressState =
           sequenceAssetLoaders.get(i).getProgress(internalProgressHolder);
       if (assetLoaderProgressState != PROGRESS_STATE_AVAILABLE) {
-        // TODO - b/322136131 : Check for inconsistent state transitions.
+        // TODO: b/322136131 - Check for inconsistent state transitions.
         synchronized (progressLock) {
           progressState = assetLoaderProgressState;
           progressValue = 0;
@@ -713,7 +704,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       } else {
         Format firstFormat;
         if (MimeTypes.isVideo(assetLoaderOutputFormat.sampleMimeType)) {
-          // TODO(b/267301878): Pass firstAssetLoaderOutputFormat once surface creation not in VSP.
+          // TODO: b/267301878 - Pass firstAssetLoaderOutputFormat once surface creation not in VSP.
           boolean isMediaCodecToneMappingRequested =
               transformationRequest.hdrMode == HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC;
           ColorInfo decoderOutputColor =

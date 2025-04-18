@@ -15,22 +15,28 @@
  */
 package androidx.media3.transformer;
 
+import static androidx.media3.common.PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED;
+import static androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED;
+import static androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static androidx.media3.common.util.Util.SDK_INT;
 import static androidx.media3.exoplayer.DefaultRenderersFactory.DEFAULT_ALLOWED_VIDEO_JOINING_TIME_MS;
 import static androidx.media3.exoplayer.DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.media.MediaFormat;
 import android.os.Handler;
+import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Timeline;
 import androidx.media3.common.util.ConstantRateTimestampIterator;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.Renderer;
@@ -42,6 +48,7 @@ import androidx.media3.exoplayer.image.ImageDecoder;
 import androidx.media3.exoplayer.image.ImageOutput;
 import androidx.media3.exoplayer.image.ImageRenderer;
 import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter;
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
 import androidx.media3.exoplayer.metadata.MetadataOutput;
 import androidx.media3.exoplayer.source.MediaSource;
@@ -65,6 +72,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Nullable private final VideoSink videoSink;
   @Nullable private final ImageDecoder.Factory imageDecoderFactory;
   private final int inputIndex;
+  private final boolean requestToneMapping;
+  private final boolean videoPrewarmingEnabled;
 
   /** Creates a renderers factory for a player that will play video, image and audio. */
   public static SequenceRenderersFactory create(
@@ -73,24 +82,18 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       PlaybackAudioGraphWrapper playbackAudioGraphWrapper,
       VideoSink videoSink,
       ImageDecoder.Factory imageDecoderFactory,
-      int inputIndex) {
-    return new SequenceRenderersFactory(
-        context, sequence, playbackAudioGraphWrapper, videoSink, imageDecoderFactory, inputIndex);
-  }
-
-  /** Creates a renderers factory that for a player that will only play audio. */
-  public static SequenceRenderersFactory createForAudio(
-      Context context,
-      EditedMediaItemSequence sequence,
-      PlaybackAudioGraphWrapper playbackAudioGraphWrapper,
-      int inputIndex) {
+      int inputIndex,
+      boolean requestToneMapping,
+      boolean videoPrewarmingEnabled) {
     return new SequenceRenderersFactory(
         context,
         sequence,
         playbackAudioGraphWrapper,
-        /* videoSink= */ null,
-        /* imageDecoderFactory= */ null,
-        inputIndex);
+        videoSink,
+        imageDecoderFactory,
+        inputIndex,
+        requestToneMapping,
+        videoPrewarmingEnabled);
   }
 
   private SequenceRenderersFactory(
@@ -99,13 +102,17 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       PlaybackAudioGraphWrapper playbackAudioGraphWrapper,
       @Nullable VideoSink videoSink,
       @Nullable ImageDecoder.Factory imageDecoderFactory,
-      int inputIndex) {
+      int inputIndex,
+      boolean requestToneMapping,
+      boolean videoPrewarmingEnabled) {
     this.context = context;
     this.sequence = sequence;
     this.playbackAudioGraphWrapper = playbackAudioGraphWrapper;
     this.videoSink = videoSink;
     this.imageDecoderFactory = imageDecoderFactory;
     this.inputIndex = inputIndex;
+    this.requestToneMapping = requestToneMapping;
+    this.videoPrewarmingEnabled = videoPrewarmingEnabled;
   }
 
   @Override
@@ -128,16 +135,38 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     if (videoSink != null) {
       renderers.add(
           new SequenceVideoRenderer(
-              checkStateNotNull(context),
+              context,
               eventHandler,
               videoRendererEventListener,
               sequence,
-              videoSink));
+              new BufferingVideoSink(context),
+              requestToneMapping));
       renderers.add(
           new SequenceImageRenderer(sequence, checkStateNotNull(imageDecoderFactory), videoSink));
     }
 
     return renderers.toArray(new Renderer[0]);
+  }
+
+  @Nullable
+  @Override
+  public Renderer createSecondaryRenderer(
+      Renderer renderer,
+      Handler eventHandler,
+      VideoRendererEventListener videoRendererEventListener,
+      AudioRendererEventListener audioRendererEventListener,
+      TextOutput textRendererOutput,
+      MetadataOutput metadataRendererOutput) {
+    if (isVideoPrewarmingEnabled() && renderer instanceof SequenceVideoRenderer) {
+      return new SequenceVideoRenderer(
+          context,
+          eventHandler,
+          videoRendererEventListener,
+          sequence,
+          new BufferingVideoSink(context),
+          requestToneMapping);
+    }
+    return null;
   }
 
   private static long getOffsetToCompositionTimeUs(
@@ -161,6 +190,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     return offsetToCompositionTimeUs;
   }
 
+  private static boolean isLastInSequence(
+      Timeline timeline, EditedMediaItemSequence sequence, EditedMediaItem mediaItem) {
+    int lastEditedMediaItemIndex = timeline.getPeriodCount() - 1;
+    return mediaItem == getRepeatedEditedMediaItem(sequence, lastEditedMediaItemIndex);
+  }
+
   /**
    * Gets the {@link EditedMediaItem} of a given {@code index}.
    *
@@ -175,6 +210,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     return sequence.editedMediaItems.get(index);
   }
 
+  @ChecksSdkIntAtLeast(api = 23)
+  private boolean isVideoPrewarmingEnabled() {
+    return videoPrewarmingEnabled && SDK_INT >= 23;
+  }
+
   private static final class SequenceAudioRenderer extends MediaCodecAudioRenderer {
     private final EditedMediaItemSequence sequence;
     private final AudioGraphInputAudioSink audioSink;
@@ -183,7 +223,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     @Nullable private EditedMediaItem pendingEditedMediaItem;
     private long pendingOffsetToCompositionTimeUs;
 
-    // TODO - b/320007703: Revisit the abstractions needed here (editedMediaItemProvider and
+    // TODO: b/320007703 - Revisit the abstractions needed here (editedMediaItemProvider and
     //  Supplier<EditedMediaItem>) once we finish all the wiring to support multiple sequences.
     public SequenceAudioRenderer(
         Context context,
@@ -209,8 +249,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
           | AudioSink.WriteException
           | AudioSink.InitializationException
           | AudioSink.ConfigurationException e) {
-        throw createRendererException(
-            e, /* format= */ null, ExoPlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED);
+        throw createRendererException(e, /* format= */ null, ERROR_CODE_AUDIO_TRACK_WRITE_FAILED);
       }
     }
 
@@ -251,20 +290,21 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     private void onMediaItemChanged() {
       EditedMediaItem currentEditedMediaItem = checkStateNotNull(pendingEditedMediaItem);
-      // Use reference equality intentionally.
-      int lastEditedMediaItemIndex = getTimeline().getPeriodCount() - 1;
-      boolean isLastInSequence =
-          currentEditedMediaItem == getRepeatedEditedMediaItem(sequence, lastEditedMediaItemIndex);
       audioSink.onMediaItemChanged(
-          currentEditedMediaItem, pendingOffsetToCompositionTimeUs, isLastInSequence);
+          currentEditedMediaItem,
+          pendingOffsetToCompositionTimeUs,
+          isLastInSequence(getTimeline(), sequence, currentEditedMediaItem));
     }
   }
 
-  private static final class SequenceVideoRenderer extends MediaCodecVideoRenderer {
-    private final EditedMediaItemSequence sequence;
-    private final VideoSink videoSink;
+  private final class SequenceVideoRenderer extends MediaCodecVideoRenderer {
 
-    @Nullable private ImmutableList<Effect> pendingEffect;
+    private final EditedMediaItemSequence sequence;
+    private final BufferingVideoSink bufferingVideoSink;
+    private final boolean requestToneMapping;
+
+    private ImmutableList<Effect> pendingEffects;
+    @Nullable private EditedMediaItem currentEditedMediaItem;
     private long offsetToCompositionTimeUs;
 
     public SequenceVideoRenderer(
@@ -272,21 +312,49 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         Handler eventHandler,
         VideoRendererEventListener videoRendererEventListener,
         EditedMediaItemSequence sequence,
-        VideoSink videoSink) {
+        BufferingVideoSink bufferingVideoSink,
+        boolean requestToneMapping) {
       super(
-          context,
-          MediaCodecAdapter.Factory.getDefault(context),
-          MediaCodecSelector.DEFAULT,
-          DEFAULT_ALLOWED_VIDEO_JOINING_TIME_MS,
-          /* enableDecoderFallback= */ false,
-          eventHandler,
-          videoRendererEventListener,
-          MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
-          /* assumedMinimumCodecOperatingRate= */ DEFAULT_FRAME_RATE,
-          videoSink);
+          new Builder(context)
+              .setMediaCodecSelector(MediaCodecSelector.DEFAULT)
+              .setCodecAdapterFactory(MediaCodecAdapter.Factory.getDefault(context))
+              .setAllowedJoiningTimeMs(DEFAULT_ALLOWED_VIDEO_JOINING_TIME_MS)
+              .setEnableDecoderFallback(false)
+              .setEventHandler(eventHandler)
+              .setEventListener(videoRendererEventListener)
+              .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+              .setAssumedMinimumCodecOperatingRate(DEFAULT_FRAME_RATE)
+              .setVideoSink(bufferingVideoSink));
       this.sequence = sequence;
-      this.videoSink = videoSink;
+      this.bufferingVideoSink = bufferingVideoSink;
+      this.requestToneMapping = requestToneMapping;
+      this.pendingEffects = ImmutableList.of();
       experimentalEnableProcessedStreamChangedAtStart();
+    }
+
+    @Override
+    protected void onEnabled(boolean joining, boolean mayRenderStartOfStream)
+        throws ExoPlaybackException {
+      if (mayRenderStartOfStream) {
+        // Activate the BufferingVideoSink before calling super.onEnabled(), so that it points to a
+        // VideoSink when executing the super method.
+        activateBufferingVideoSink();
+      }
+      super.onEnabled(joining, mayRenderStartOfStream);
+    }
+
+    @Override
+    protected void onStarted() {
+      // Activate the BufferingVideoSink before calling super.onStarted(), so that it points to a
+      // VideoSink when executing the super method.
+      activateBufferingVideoSink();
+      super.onStarted();
+    }
+
+    @Override
+    protected void onDisabled() {
+      super.onDisabled();
+      deactivateBufferingVideoSink();
     }
 
     @Override
@@ -297,11 +365,59 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         MediaSource.MediaPeriodId mediaPeriodId)
         throws ExoPlaybackException {
       checkState(getTimeline().getWindowCount() == 1);
-      super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
       // The media item might have been repeated in the sequence.
       int mediaItemIndex = getTimeline().getIndexOfPeriod(mediaPeriodId.periodUid);
+      // The renderer has started processing this item, VideoGraph might still be processing the
+      // previous one.
+      currentEditedMediaItem = getRepeatedEditedMediaItem(sequence, mediaItemIndex);
       offsetToCompositionTimeUs = getOffsetToCompositionTimeUs(sequence, mediaItemIndex, offsetUs);
-      pendingEffect = sequence.editedMediaItems.get(mediaItemIndex).effects.videoEffects;
+      pendingEffects = sequence.editedMediaItems.get(mediaItemIndex).effects.videoEffects;
+      super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
+    }
+
+    @Override
+    protected MediaFormat getMediaFormat(
+        Format format,
+        String codecMimeType,
+        CodecMaxValues codecMaxValues,
+        float codecOperatingRate,
+        boolean deviceNeedsNoPostProcessWorkaround,
+        int tunnelingAudioSessionId) {
+      MediaFormat mediaFormat =
+          super.getMediaFormat(
+              format,
+              codecMimeType,
+              codecMaxValues,
+              codecOperatingRate,
+              deviceNeedsNoPostProcessWorkaround,
+              tunnelingAudioSessionId);
+      if (requestToneMapping && SDK_INT >= 31) {
+        mediaFormat.setInteger(
+            MediaFormat.KEY_COLOR_TRANSFER_REQUEST, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
+      }
+      return mediaFormat;
+    }
+
+    @Override
+    public void handleMessage(@MessageType int messageType, @Nullable Object message)
+        throws ExoPlaybackException {
+      if (messageType == MSG_TRANSFER_RESOURCES) {
+        // Ignore MSG_TRANSFER_RESOURCES to avoid updating the VideoGraph's output surface.
+        return;
+      }
+      super.handleMessage(messageType, message);
+    }
+
+    @Override
+    protected boolean shouldInitCodec(MediaCodecInfo codecInfo) {
+      if (isVideoPrewarmingEnabled()
+          && bufferingVideoSink.getVideoSink() == null
+          && codecNeedsSetOutputSurfaceWorkaround(codecInfo.name)) {
+        // Wait until the BufferingVideoSink points to the effect VideoSink to init the codec, so
+        // that the codec output surface is set to the effect VideoSink input surface.
+        return false;
+      }
+      return super.shouldInitCodec(codecInfo);
     }
 
     @Override
@@ -310,11 +426,52 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     @Override
-    protected void onReadyToChangeVideoSinkInputStream() {
-      @Nullable ImmutableList<Effect> pendingEffect = this.pendingEffect;
-      if (pendingEffect != null) {
-        videoSink.setPendingVideoEffects(pendingEffect);
-        this.pendingEffect = null;
+    protected void renderToEndOfStream() {
+      super.renderToEndOfStream();
+      if (isLastInSequence(getTimeline(), sequence, checkNotNull(currentEditedMediaItem))) {
+        bufferingVideoSink.signalEndOfInput();
+      }
+    }
+
+    @Override
+    protected void changeVideoSinkInputStream(
+        VideoSink videoSink, @VideoSink.InputType int inputType, Format format) {
+      videoSink.onInputStreamChanged(inputType, format, pendingEffects);
+    }
+
+    private void activateBufferingVideoSink() {
+      if (bufferingVideoSink.getVideoSink() != null) {
+        return;
+      }
+      VideoSink frameProcessingVideoSink = checkNotNull(SequenceRenderersFactory.this.videoSink);
+      bufferingVideoSink.setVideoSink(frameProcessingVideoSink);
+      @Nullable MediaCodecAdapter codec = getCodec();
+      if (isVideoPrewarmingEnabled()
+          && frameProcessingVideoSink.isInitialized()
+          && codec != null
+          && !codecNeedsSetOutputSurfaceWorkaround(checkNotNull(getCodecInfo()).name)) {
+        setOutputSurfaceV23(codec, frameProcessingVideoSink.getInputSurface());
+      }
+    }
+
+    private void deactivateBufferingVideoSink() {
+      if (!isVideoPrewarmingEnabled()) {
+        return;
+      }
+      bufferingVideoSink.setVideoSink(null);
+      // During a seek, it's possible for the renderer to be disabled without having been started.
+      // When this happens, the BufferingVideoSink can have pending operations, so they need to be
+      // cleared.
+      bufferingVideoSink.clearPendingOperations();
+      @Nullable MediaCodecAdapter codec = getCodec();
+      if (codec == null) {
+        return;
+      }
+      if (!codecNeedsSetOutputSurfaceWorkaround(checkNotNull(getCodecInfo()).name)) {
+        // Sets a placeholder surface
+        setOutputSurfaceV23(codec, bufferingVideoSink.getInputSurface());
+      } else {
+        releaseCodec();
       }
     }
   }
@@ -326,7 +483,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     private ImmutableList<Effect> videoEffects;
     private @MonotonicNonNull ConstantRateTimestampIterator timestampIterator;
-    private @MonotonicNonNull EditedMediaItem editedMediaItem;
+    private @MonotonicNonNull EditedMediaItem currentEditedMediaItem;
     @Nullable private ExoPlaybackException pendingExoPlaybackException;
     private boolean inputStreamPending;
     private long streamStartPositionUs;
@@ -352,16 +509,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       super.onEnabled(joining, mayRenderStartOfStream);
       this.mayRenderStartOfStream = mayRenderStartOfStream;
       videoSink.onRendererEnabled(mayRenderStartOfStream);
-      if (!videoSink.isInitialized()) {
-        Format format = new Format.Builder().build();
-        try {
-          videoSink.initialize(format);
-        } catch (VideoSink.VideoSinkException e) {
-          throw createRendererException(
-              e, format, PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED);
-        }
-      }
-      // TODO - b/328444280: Do not set a listener on VideoSink, but MediaCodecVideoRenderer must
+      // TODO: b/328444280 - Do not set a listener on VideoSink, but MediaCodecVideoRenderer must
       //  unregister itself as a listener too.
       videoSink.setListener(VideoSink.Listener.NO_OP, /* executor= */ (runnable) -> {});
     }
@@ -400,15 +548,30 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     @Override
     protected void onPositionReset(long positionUs, boolean joining) throws ExoPlaybackException {
-      videoSink.flush(/* resetPosition= */ true);
+      if (!joining) {
+        videoSink.flush(/* resetPosition= */ true);
+        timestampIterator = createTimestampIterator(positionUs);
+      }
       super.onPositionReset(positionUs, joining);
-      timestampIterator = createTimestampIterator(positionUs);
     }
 
     @Override
     protected void onStarted() throws ExoPlaybackException {
       super.onStarted();
       videoSink.onRendererStarted();
+    }
+
+    @Override
+    protected boolean maybeInitializeProcessingPipeline() throws ExoPlaybackException {
+      if (videoSink.isInitialized()) {
+        return true;
+      }
+      Format format = new Format.Builder().build();
+      try {
+        return videoSink.initialize(format);
+      } catch (VideoSink.VideoSinkException e) {
+        throw createRendererException(e, format, ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED);
+      }
     }
 
     @Override
@@ -425,15 +588,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         MediaSource.MediaPeriodId mediaPeriodId)
         throws ExoPlaybackException {
       checkState(getTimeline().getWindowCount() == 1);
-      super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
       streamStartPositionUs = startPositionUs;
       // The media item might have been repeated in the sequence.
       int mediaItemIndex = getTimeline().getIndexOfPeriod(mediaPeriodId.periodUid);
-      editedMediaItem = sequence.editedMediaItems.get(mediaItemIndex);
+      currentEditedMediaItem = sequence.editedMediaItems.get(mediaItemIndex);
       offsetToCompositionTimeUs = getOffsetToCompositionTimeUs(sequence, mediaItemIndex, offsetUs);
       timestampIterator = createTimestampIterator(/* positionUs= */ startPositionUs);
-      videoEffects = editedMediaItem.effects.videoEffects;
+      videoEffects = currentEditedMediaItem.effects.videoEffects;
       inputStreamPending = true;
+      super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
     }
 
     @Override
@@ -443,12 +606,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         pendingExoPlaybackException = null;
         throw exoPlaybackException;
       }
+
       super.render(positionUs, elapsedRealtimeUs);
       try {
         videoSink.render(positionUs, elapsedRealtimeUs);
       } catch (VideoSink.VideoSinkException e) {
-        throw createRendererException(
-            e, e.format, PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED);
+        throw createRendererException(e, e.format, ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED);
       }
     }
 
@@ -457,12 +620,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         long positionUs, long elapsedRealtimeUs, Bitmap outputImage, long timeUs) {
       if (inputStreamPending) {
         checkState(streamStartPositionUs != C.TIME_UNSET);
-        videoSink.setPendingVideoEffects(videoEffects);
         videoSink.setStreamTimestampInfo(
-            streamStartPositionUs,
-            getStreamOffsetUs(),
-            /* bufferTimestampAdjustmentUs= */ offsetToCompositionTimeUs,
-            getLastResetPositionUs());
+            streamStartPositionUs, /* bufferTimestampAdjustmentUs= */ offsetToCompositionTimeUs);
         videoSink.onInputStreamChanged(
             VideoSink.INPUT_TYPE_BITMAP,
             new Format.Builder()
@@ -471,10 +630,28 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
                 .setHeight(outputImage.getHeight())
                 .setColorInfo(ColorInfo.SRGB_BT709_FULL)
                 .setFrameRate(/* frameRate= */ DEFAULT_FRAME_RATE)
-                .build());
+                .build(),
+            videoEffects);
         inputStreamPending = false;
       }
-      return videoSink.handleInputBitmap(outputImage, checkStateNotNull(timestampIterator));
+      if (!videoSink.handleInputBitmap(outputImage, checkStateNotNull(timestampIterator))) {
+        return false;
+      }
+      videoSink.signalEndOfCurrentInputStream();
+      if (isLastInSequence(getTimeline(), sequence, checkNotNull(currentEditedMediaItem))) {
+        videoSink.signalEndOfInput();
+      }
+      return true;
+    }
+
+    @Override
+    public void handleMessage(@MessageType int messageType, @Nullable Object message)
+        throws ExoPlaybackException {
+      if (messageType == MSG_SET_WAKEUP_LISTENER) {
+        videoSink.setWakeupListener((WakeupListener) checkNotNull(message));
+      } else {
+        super.handleMessage(messageType, message);
+      }
     }
 
     private ConstantRateTimestampIterator createTimestampIterator(long positionUs) {
@@ -483,7 +660,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       long positionWithinImage = positionUs - streamOffsetUs;
       long firstBitmapTimeUs = imageBaseTimestampUs + positionWithinImage;
       long lastBitmapTimeUs =
-          imageBaseTimestampUs + checkNotNull(editedMediaItem).getPresentationDurationUs();
+          imageBaseTimestampUs + checkNotNull(currentEditedMediaItem).getPresentationDurationUs();
       return new ConstantRateTimestampIterator(
           /* startPositionUs= */ firstBitmapTimeUs,
           /* endPositionUs= */ lastBitmapTimeUs,

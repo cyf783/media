@@ -89,13 +89,23 @@ public final class FragmentedMp4ExtractorParameterizedTest {
   }
 
   @Test
-  public void sampleWithSeiPayloadParsing() throws Exception {
+  public void sampleWithSeiPayloadInputHasNoCaptions() throws Exception {
     // Enabling the CEA-608 track enables SEI payload parsing.
     List<Format> closedCaptions =
         Collections.singletonList(
             new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_CEA608).build());
 
     assertExtractorBehavior(closedCaptions, "media/mp4/sample_fragmented_sei.mp4");
+  }
+
+  @Test
+  public void sampleWithSeiPayloadInputHasCaptions() throws Exception {
+    // Enabling the CEA-608 track enables SEI payload parsing.
+    List<Format> closedCaptions =
+        Collections.singletonList(
+            new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_CEA608).build());
+
+    assertExtractorBehavior(closedCaptions, "media/mp4/fragmented_captions.mp4");
   }
 
   @Test
@@ -108,6 +118,13 @@ public final class FragmentedMp4ExtractorParameterizedTest {
   public void sampleWithAc4Track() throws Exception {
     assertExtractorBehavior(
         /* closedCaptionFormats= */ ImmutableList.of(), "media/mp4/sample_ac4_fragmented.mp4");
+  }
+
+  @Test
+  public void sampleWithAc4Level4Track() throws Exception {
+    assertExtractorBehavior(
+        /* closedCaptionFormats= */ ImmutableList.of(),
+        "media/mp4/sample_ac4_level4_fragmented.mp4");
   }
 
   @Test
@@ -183,6 +200,16 @@ public final class FragmentedMp4ExtractorParameterizedTest {
         /* closedCaptionFormats= */ ImmutableList.of(), "media/mp4/sample_fragmented_iamf.mp4");
   }
 
+  @Test
+  public void sampleWithNonReferenceH265FramesAndCaptions() throws Exception {
+    // Enabling the CEA-608 track enables SEI payload parsing.
+    List<Format> closedCaptions =
+        Collections.singletonList(
+            new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_CEA608).build());
+
+    assertExtractorBehavior(closedCaptions, "media/mp4/fragmented_captions_h265.mp4");
+  }
+
   private void assertExtractorBehavior(List<Format> closedCaptionFormats, String file)
       throws IOException {
     ExtractorAsserts.AssertionConfig.Builder assertionConfigBuilder =
@@ -215,6 +242,7 @@ public final class FragmentedMp4ExtractorParameterizedTest {
     }
     if (readWithinGopSampleDependencies) {
       flags |= FragmentedMp4Extractor.FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES;
+      flags |= FragmentedMp4Extractor.FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265;
     }
 
     @FragmentedMp4Extractor.Flags int finalFlags = flags;

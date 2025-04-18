@@ -15,6 +15,8 @@
  */
 package androidx.media3.demo.composition;
 
+import static android.content.pm.ActivityInfo.COLOR_MODE_HDR;
+import static androidx.media3.common.util.Util.SDK_INT;
 import static androidx.media3.transformer.Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR;
 import static androidx.media3.transformer.Composition.HDR_MODE_KEEP_HDR;
 import static androidx.media3.transformer.Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC;
@@ -55,7 +57,8 @@ import androidx.media3.transformer.EditedMediaItemSequence;
 import androidx.media3.transformer.Effects;
 import androidx.media3.transformer.ExportException;
 import androidx.media3.transformer.ExportResult;
-import androidx.media3.transformer.InAppMuxer;
+import androidx.media3.transformer.InAppFragmentedMp4Muxer;
+import androidx.media3.transformer.InAppMp4Muxer;
 import androidx.media3.transformer.JsonUtil;
 import androidx.media3.transformer.Transformer;
 import androidx.media3.ui.PlayerView;
@@ -111,6 +114,9 @@ public final class CompositionPreviewActivity extends AppCompatActivity {
   @Override
   protected void onCreate(@Nullable Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    if (SDK_INT >= 26) {
+      getWindow().setColorMode(COLOR_MODE_HDR);
+    }
     setContentView(R.layout.composition_preview_activity);
     playerView = findViewById(R.id.composition_player_view);
 
@@ -184,6 +190,18 @@ public final class CompositionPreviewActivity extends AppCompatActivity {
     releasePlayer();
     cancelExport();
     exportStopwatch.reset();
+  }
+
+  @SuppressWarnings("MissingSuperCall")
+  @Override
+  public void onBackPressed() {
+    if (compositionPlayer != null) {
+      compositionPlayer.pause();
+    }
+    if (exportStopwatch.isRunning()) {
+      cancelExport();
+      exportStopwatch.reset();
+    }
   }
 
   private Composition prepareComposition() {
@@ -279,7 +297,6 @@ public final class CompositionPreviewActivity extends AppCompatActivity {
             Log.e(TAG, "Preview error", error);
           }
         });
-    player.setRepeatMode(Player.REPEAT_MODE_ALL);
     player.setComposition(composition);
     player.prepare();
     player.play();
@@ -346,21 +363,20 @@ public final class CompositionPreviewActivity extends AppCompatActivity {
     enableDebugTracingCheckBox.setOnCheckedChangeListener(
         (buttonView, isChecked) -> DebugTraceUtil.enableTracing = isChecked);
 
-    // Connect producing fragmented MP4 to using Media3 Muxer
-    CheckBox useMedia3MuxerCheckBox =
-        exportSettingsDialogView.findViewById(R.id.use_media3_muxer_checkbox);
-    CheckBox produceFragmentedMp4CheckBox =
-        exportSettingsDialogView.findViewById(R.id.produce_fragmented_mp4_checkbox);
-    useMedia3MuxerCheckBox.setOnCheckedChangeListener(
-        (buttonView, isChecked) -> {
-          if (!isChecked) {
-            produceFragmentedMp4CheckBox.setChecked(false);
-          }
-        });
-    produceFragmentedMp4CheckBox.setOnCheckedChangeListener(
+    CheckBox useMedia3Mp4MuxerCheckBox =
+        exportSettingsDialogView.findViewById(R.id.use_media3_mp4_muxer_checkbox);
+    CheckBox useMedia3FragmentedMp4MuxerCheckBox =
+        exportSettingsDialogView.findViewById(R.id.use_media3_fragmented_mp4_muxer_checkbox);
+    useMedia3Mp4MuxerCheckBox.setOnCheckedChangeListener(
         (buttonView, isChecked) -> {
           if (isChecked) {
-            useMedia3MuxerCheckBox.setChecked(true);
+            useMedia3FragmentedMp4MuxerCheckBox.setChecked(false);
+          }
+        });
+    useMedia3FragmentedMp4MuxerCheckBox.setOnCheckedChangeListener(
+        (buttonView, isChecked) -> {
+          if (isChecked) {
+            useMedia3Mp4MuxerCheckBox.setChecked(false);
           }
         });
 
@@ -403,15 +419,15 @@ public final class CompositionPreviewActivity extends AppCompatActivity {
       transformerBuilder.setVideoMimeType(selectedVideoMimeType);
     }
 
-    CheckBox useMedia3MuxerCheckBox =
-        exportSettingsDialogView.findViewById(R.id.use_media3_muxer_checkbox);
-    CheckBox produceFragmentedMp4CheckBox =
-        exportSettingsDialogView.findViewById(R.id.produce_fragmented_mp4_checkbox);
-    if (useMedia3MuxerCheckBox.isChecked()) {
-      transformerBuilder.setMuxerFactory(
-          new InAppMuxer.Factory.Builder()
-              .setOutputFragmentedMp4(produceFragmentedMp4CheckBox.isChecked())
-              .build());
+    CheckBox useMedia3Mp4MuxerCheckBox =
+        exportSettingsDialogView.findViewById(R.id.use_media3_mp4_muxer_checkbox);
+    CheckBox useMedia3FragmentedMp4MuxerCheckBox =
+        exportSettingsDialogView.findViewById(R.id.use_media3_fragmented_mp4_muxer_checkbox);
+    if (useMedia3Mp4MuxerCheckBox.isChecked()) {
+      transformerBuilder.setMuxerFactory(new InAppMp4Muxer.Factory());
+    }
+    if (useMedia3FragmentedMp4MuxerCheckBox.isChecked()) {
+      transformerBuilder.setMuxerFactory(new InAppFragmentedMp4Muxer.Factory());
     }
 
     transformer =

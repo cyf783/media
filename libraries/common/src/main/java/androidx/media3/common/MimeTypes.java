@@ -44,6 +44,7 @@ public final class MimeTypes {
   public static final String VIDEO_WEBM = BASE_TYPE_VIDEO + "/webm";
   public static final String VIDEO_H263 = BASE_TYPE_VIDEO + "/3gpp";
   public static final String VIDEO_H264 = BASE_TYPE_VIDEO + "/avc";
+  @UnstableApi public static final String VIDEO_APV = BASE_TYPE_VIDEO + "/apv";
   public static final String VIDEO_H265 = BASE_TYPE_VIDEO + "/hevc";
   @UnstableApi public static final String VIDEO_VP8 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp8";
   @UnstableApi public static final String VIDEO_VP9 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp9";
@@ -577,6 +578,36 @@ public final class MimeTypes {
       default:
         return null;
     }
+  }
+
+  /**
+   * Returns whether the given {@code codecs} and {@code supplementalCodecs} correspond to a valid
+   * Dolby Vision codec.
+   *
+   * @param codecs An RFC 6381 codecs string for the base codec. may be null.
+   * @param supplementalCodecs An optional RFC 6381 codecs string for supplemental codecs.
+   * @return Whether the given {@code codecs} and {@code supplementalCodecs} correspond to a valid
+   *     Dolby Vision codec.
+   */
+  @UnstableApi
+  public static boolean isDolbyVisionCodec(
+      @Nullable String codecs, @Nullable String supplementalCodecs) {
+    if (codecs == null) {
+      return false;
+    }
+    if (codecs.startsWith("dvhe") || codecs.startsWith("dvh1")) {
+      // profile 5
+      return true;
+    }
+    if (supplementalCodecs == null) {
+      return false;
+    }
+    // profiles 8, 9 and 10
+    return (supplementalCodecs.startsWith("dvhe") && codecs.startsWith("hev1"))
+        || (supplementalCodecs.startsWith("dvh1") && codecs.startsWith("hvc1"))
+        || (supplementalCodecs.startsWith("dvav") && codecs.startsWith("avc3"))
+        || (supplementalCodecs.startsWith("dva1") && codecs.startsWith("avc1"))
+        || (supplementalCodecs.startsWith("dav1") && codecs.startsWith("av01"));
   }
 
   /**

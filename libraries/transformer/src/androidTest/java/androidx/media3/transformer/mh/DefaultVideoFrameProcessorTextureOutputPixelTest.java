@@ -56,7 +56,7 @@ import androidx.media3.effect.DefaultVideoFrameProcessor;
 import androidx.media3.effect.GaussianBlur;
 import androidx.media3.effect.GlTextureProducer;
 import androidx.media3.effect.OverlayEffect;
-import androidx.media3.effect.OverlaySettings;
+import androidx.media3.effect.StaticOverlaySettings;
 import androidx.media3.effect.TextOverlay;
 import androidx.media3.test.utils.BitmapPixelTestUtil;
 import androidx.media3.test.utils.TextureBitmapReader;
@@ -83,7 +83,7 @@ import org.junit.runner.RunWith;
  * <p>Uses a {@link DefaultVideoFrameProcessor} to process one frame, and checks that the actual
  * output matches expected output, either from a golden file or from another edit.
  */
-// TODO(b/263395272): Move this test to effects/mh tests, and remove @TestOnly dependencies.
+// TODO: b/263395272 - Move this test to effects/mh tests, and remove @TestOnly dependencies.
 @RunWith(AndroidJUnit4.class)
 public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
   private static final String ORIGINAL_PNG_ASSET_PATH =
@@ -160,7 +160,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -188,7 +188,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -230,7 +230,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -258,7 +258,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -266,7 +266,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
   }
 
   @Test
-  @Ignore("TODO: b/344529901 - enable this test when fixed.")
+  @Ignore("TODO: b/344529901 - Enable this test when fixed.")
   public void ultraHdrBitmapAndTextOverlay_hlg10Input_matchesGoldenFile() throws Exception {
     Context context = getApplicationContext();
     Format format = MP4_ASSET_1080P_5_SECOND_HLG10.videoFormat;
@@ -304,7 +304,8 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
         /* end= */ 7,
         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
     TextOverlay textOverlay =
-        TextOverlay.createStaticTextOverlay(overlayText, new OverlaySettings.Builder().build());
+        TextOverlay.createStaticTextOverlay(
+            overlayText, new StaticOverlaySettings.Builder().build());
     videoFrameProcessorTestRunner =
         getDefaultFrameProcessorTestRunnerBuilder(testId)
             .setEffects(new OverlayEffect(ImmutableList.of(bitmapOverlay, textOverlay)))
@@ -358,12 +359,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
-    float averagePixelAbsoluteDifference =
-        BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
-            expectedBitmap, actualBitmap);
-    assertThat(averagePixelAbsoluteDifference)
-        .isAtMost(MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE_DIFFERENT_DEVICE_FP16);
+    assertBitmapsAreSimilar(expectedBitmap, actualBitmap, HDR_PSNR_THRESHOLD);
   }
 
   @Test
@@ -393,12 +389,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
-    float averagePixelAbsoluteDifference =
-        BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
-            expectedBitmap, actualBitmap);
-    assertThat(averagePixelAbsoluteDifference)
-        .isAtMost(MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE_DIFFERENT_DEVICE_FP16);
+    assertBitmapsAreSimilar(expectedBitmap, actualBitmap, HDR_PSNR_THRESHOLD);
   }
 
   @Test
@@ -432,7 +423,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
     TextOverlay textOverlay =
         TextOverlay.createStaticTextOverlay(
-            overlayText, new OverlaySettings.Builder().setHdrLuminanceMultiplier(3f).build());
+            overlayText, new StaticOverlaySettings.Builder().setHdrLuminanceMultiplier(3f).build());
     videoFrameProcessorTestRunner =
         getDefaultFrameProcessorTestRunnerBuilder(testId)
             .setEffects(new OverlayEffect(ImmutableList.of(textOverlay)))
@@ -464,7 +455,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -498,12 +489,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
-    float averagePixelAbsoluteDifference =
-        BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
-            expectedBitmap, actualBitmap);
-    assertThat(averagePixelAbsoluteDifference)
-        .isAtMost(MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE_DIFFERENT_DEVICE_FP16);
+    assertBitmapsAreSimilar(expectedBitmap, actualBitmap, HDR_PSNR_THRESHOLD);
   }
 
   @Test
@@ -527,7 +513,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -560,7 +546,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.endFrameProcessing();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -585,7 +571,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -619,7 +605,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -648,7 +634,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -681,7 +667,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.endFrameProcessing();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -707,7 +693,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -736,7 +722,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -770,7 +756,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.endFrameProcessing();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -796,7 +782,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.processFirstFrameAndEnd();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -825,7 +811,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     texIdProducingVideoFrameProcessorTestRunner.release();
     Bitmap actualBitmap = consumersBitmapReader.getBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);
@@ -859,7 +845,7 @@ public final class DefaultVideoFrameProcessorTextureOutputPixelTest {
     videoFrameProcessorTestRunner.endFrameProcessing();
     Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceFp16(
             expectedBitmap, actualBitmap);

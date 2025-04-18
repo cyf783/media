@@ -33,6 +33,7 @@ import android.opengl.GLES20;
 import android.opengl.GLES30;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
+import android.os.Build;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -42,6 +43,7 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import javax.microedition.khronos.egl.EGL10;
 
 /** OpenGL ES utilities. */
@@ -170,7 +172,8 @@ public final class GlUtil {
     if (Util.SDK_INT < 24) {
       return false;
     }
-    if (Util.SDK_INT < 26 && ("samsung".equals(Util.MANUFACTURER) || "XT1650".equals(Util.MODEL))) {
+    if (Util.SDK_INT < 26
+        && ("samsung".equals(Build.MANUFACTURER) || "XT1650".equals(Build.MODEL))) {
       // Samsung devices running Nougat are known to be broken. See
       // https://github.com/google/ExoPlayer/issues/3373 and [Internal: b/37197802].
       // Moto Z XT1650 is also affected. See
@@ -207,7 +210,7 @@ public final class GlUtil {
    */
   public static boolean isYuvTargetExtensionSupported() {
     @Nullable String glExtensions;
-    if (Util.areEqual(EGL14.eglGetCurrentContext(), EGL14.EGL_NO_CONTEXT)) {
+    if (Objects.equals(EGL14.eglGetCurrentContext(), EGL14.EGL_NO_CONTEXT)) {
       // Create a placeholder context and make it current to allow calling GLES20.glGetString().
       try {
         EGLDisplay eglDisplay = getDefaultEglDisplay();
@@ -671,6 +674,34 @@ public final class GlUtil {
       return createTextureUninitialized(width, height, GLES30.GL_RGBA16F, GLES30.GL_HALF_FLOAT);
     }
     return createTextureUninitialized(width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE);
+  }
+
+  /**
+   * Allocates a new {@linkplain GLES20#GL_RGBA normalized integer} {@link GLES30#GL_RGB10_A2}
+   * texture with the specified dimensions.
+   *
+   * <p>Normalized integers in textures are automatically converted for floating point numbers
+   * https://www.khronos.org/opengl/wiki/Normalized_Integer
+   *
+   * <p>The only supported pixel data type for the {@link GLES30#GL_RGB10_A2} sized internal format
+   * is {@link GLES30#GL_UNSIGNED_INT_2_10_10_10_REV}. See
+   * https://registry.khronos.org/OpenGL-Refpages/es3.0/html/glTexImage2D.xhtml
+   *
+   * <p>The created texture is not zero-initialized. To clear the texture, {@linkplain
+   * #focusFramebuffer(EGLDisplay, EGLContext, EGLSurface, int, int, int) focus} on the texture and
+   * {@linkplain #clearFocusedBuffers() clear} its content.
+   *
+   * @param width The width of the new texture in pixels.
+   * @param height The height of the new texture in pixels.
+   * @return The texture identifier for the newly-allocated texture.
+   * @throws GlException If the texture allocation fails.
+   */
+  public static int createRgb10A2Texture(int width, int height) throws GlException {
+    return createTextureUninitialized(
+        width,
+        height,
+        /* internalFormat= */ GLES30.GL_RGB10_A2,
+        /* type= */ GLES30.GL_UNSIGNED_INT_2_10_10_10_REV);
   }
 
   /**

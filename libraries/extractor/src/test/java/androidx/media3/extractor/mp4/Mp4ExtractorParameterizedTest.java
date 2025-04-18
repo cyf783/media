@@ -174,6 +174,11 @@ public final class Mp4ExtractorParameterizedTest {
   }
 
   @Test
+  public void mp4SampleWithApvC() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_apvc.mp4");
+  }
+
+  @Test
   public void mp4SampleWithMhm1BlCicp1Track() throws Exception {
     assertExtractorBehavior("media/mp4/sample_mhm1_bl_cicp1.mp4");
   }
@@ -196,6 +201,11 @@ public final class Mp4ExtractorParameterizedTest {
   @Test
   public void mp4SampleWithEditList() throws Exception {
     assertExtractorBehavior("media/mp4/sample_edit_list.mp4");
+  }
+
+  @Test
+  public void mp4SampleWithEditListAndNoSyncFrameBeforeEdit() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_edit_list_no_sync_frame_before_edit.mp4");
   }
 
   @Test
@@ -224,14 +234,35 @@ public final class Mp4ExtractorParameterizedTest {
   }
 
   @Test
-  public void mp4WithEditableVideoTracks() throws Exception {
-    assertExtractorBehavior("media/mp4/sample_with_fake_editable_video_tracks.mp4");
+  public void mp4WithAuxiliaryTracks() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_fake_auxiliary_tracks.mp4");
   }
 
   @Test
-  public void mp4WithEditableVideoTracksInterleavedWithPrimaryVideoTracks() throws Exception {
+  public void mp4WithAuxiliaryTracksInterleavedWithPrimaryVideoTracks() throws Exception {
     assertExtractorBehavior(
-        "media/mp4/sample_with_fake_editable_video_tracks_interleaved_with_primary_video_tracks.mp4");
+        "media/mp4/sample_with_fake_auxiliary_tracks_interleaved_with_primary_video_tracks.mp4");
+  }
+
+  @Test
+  public void mp4SampleWithEmptyNalu() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_invalid_nalu.mp4");
+  }
+
+  @Test
+  public void mp4SampleWithNonReferenceH265Frames() throws Exception {
+    assertExtractorBehavior("media/mp4/h265_bframes.mp4");
+  }
+
+  // b/386847142
+  @Test
+  public void mp4SampleWithTwoByteNalLength() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_2_byte_NAL_length.mp4");
+  }
+
+  @Test
+  public void mp4SampleWithBtrt() throws Exception {
+    assertExtractorBehavior("media/mp4/sample_with_btrt.mp4");
   }
 
   private void assertExtractorBehavior(String file) throws IOException {
@@ -262,6 +293,7 @@ public final class Mp4ExtractorParameterizedTest {
     }
     if (readWithinGopSampleDependencies) {
       flags |= Mp4Extractor.FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES;
+      flags |= Mp4Extractor.FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265;
     }
 
     @Mp4Extractor.Flags int finalFlags = flags;

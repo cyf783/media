@@ -17,6 +17,7 @@ package androidx.media3.session;
 
 import static android.app.Service.STOP_FOREGROUND_DETACH;
 import static android.app.Service.STOP_FOREGROUND_REMOVE;
+import static androidx.media3.common.util.Assertions.checkNotNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import android.annotation.SuppressLint;
@@ -26,6 +27,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationManagerCompat;
@@ -52,21 +54,27 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>All methods must be called on the main thread.
  */
-/* package */ final class MediaNotificationManager {
+/* package */ final class MediaNotificationManager implements Handler.Callback {
 
   private static final String TAG = "MediaNtfMng";
+  private static final int MSG_USER_ENGAGED_TIMEOUT = 1;
 
   private final MediaSessionService mediaSessionService;
-  private final MediaNotification.Provider mediaNotificationProvider;
+
   private final MediaNotification.ActionFactory actionFactory;
   private final NotificationManagerCompat notificationManagerCompat;
+  private final Handler mainHandler;
   private final Executor mainExecutor;
   private final Intent startSelfIntent;
-  private final Map<MediaSession, ListenableFuture<MediaController>> controllerMap;
+  private final Map<MediaSession, ControllerInfo> controllerMap;
 
+  private MediaNotification.Provider mediaNotificationProvider;
   private int totalNotificationCount;
   @Nullable private MediaNotification mediaNotification;
   private boolean startedInForeground;
+  private boolean isUserEngaged;
+  private boolean isUserEngagedTimeoutEnabled;
+  private long userEngagedTimeoutMs;
 
   public MediaNotificationManager(
       MediaSessionService mediaSessionService,
@@ -76,11 +84,13 @@ import java.util.concurrent.TimeoutException;
     this.mediaNotificationProvider = mediaNotificationProvider;
     this.actionFactory = actionFactory;
     notificationManagerCompat = NotificationManagerCompat.from(mediaSessionService);
-    Handler mainHandler = new Handler(Looper.getMainLooper());
+    mainHandler = Util.createHandler(Looper.getMainLooper(), /* callback= */ this);
     mainExecutor = (runnable) -> Util.postOrRun(mainHandler, runnable);
     startSelfIntent = new Intent(mediaSessionService, mediaSessionService.getClass());
     controllerMap = new HashMap<>();
     startedInForeground = false;
+    isUserEngagedTimeoutEnabled = true;
+    userEngagedTimeoutMs = MediaSessionService.DEFAULT_FOREGROUND_SERVICE_TIMEOUT_MS;
   }
 
   public void addSession(MediaSession session) {
@@ -96,7 +106,7 @@ import java.util.concurrent.TimeoutException;
             .setListener(listener)
             .setApplicationLooper(Looper.getMainLooper())
             .buildAsync();
-    controllerMap.put(session, controllerFuture);
+    controllerMap.put(session, new ControllerInfo(controllerFuture));
     controllerFuture.addListener(
         () -> {
           try {
@@ -115,9 +125,9 @@ import java.util.concurrent.TimeoutException;
   }
 
   public void removeSession(MediaSession session) {
-    @Nullable ListenableFuture<MediaController> future = controllerMap.remove(session);
-    if (future != null) {
-      MediaController.releaseFuture(future);
+    @Nullable ControllerInfo controllerInfo = controllerMap.remove(session);
+    if (controllerInfo != null) {
+      MediaController.releaseFuture(controllerInfo.controllerFuture);
     }
   }
 
@@ -138,6 +148,15 @@ import java.util.concurrent.TimeoutException;
   }
 
   /**
+   * Updates the media notification provider.
+   *
+   * @param mediaNotificationProvider The {@link MediaNotification.Provider}.
+   */
+  public void setMediaNotificationProvider(MediaNotification.Provider mediaNotificationProvider) {
+    this.mediaNotificationProvider = mediaNotificationProvider;
+  }
+
+  /**
    * Updates the notification.
    *
    * @param session A session that needs notification update.
@@ -145,24 +164,13 @@ import java.util.concurrent.TimeoutException;
    */
   public void updateNotification(MediaSession session, boolean startInForegroundRequired) {
     if (!mediaSessionService.isSessionAdded(session) || !shouldShowNotification(session)) {
-      maybeStopForegroundService(/* removeNotifications= */ true);
+      removeNotification();
       return;
     }
 
     int notificationSequence = ++totalNotificationCount;
-    MediaController mediaNotificationController = null;
-    ListenableFuture<MediaController> controller = controllerMap.get(session);
-    if (controller != null && controller.isDone()) {
-      try {
-        mediaNotificationController = Futures.getDone(controller);
-      } catch (ExecutionException e) {
-        // Ignore.
-      }
-    }
     ImmutableList<CommandButton> mediaButtonPreferences =
-        mediaNotificationController != null
-            ? mediaNotificationController.getMediaButtonPreferences()
-            : ImmutableList.of();
+        checkNotNull(getConnectedControllerForSession(session)).getMediaButtonPreferences();
     MediaNotification.Provider.Callback callback =
         notification ->
             mainExecutor.execute(
@@ -184,21 +192,79 @@ import java.util.concurrent.TimeoutException;
     return startedInForeground;
   }
 
-  /* package */ boolean shouldRunInForeground(
-      MediaSession session, boolean startInForegroundWhenPaused) {
-    @Nullable MediaController controller = getConnectedControllerForSession(session);
-    return controller != null
-        && (controller.getPlayWhenReady() || startInForegroundWhenPaused)
-        && (controller.getPlaybackState() == Player.STATE_READY
-            || controller.getPlaybackState() == Player.STATE_BUFFERING);
+  public void setUserEngagedTimeoutMs(long userEngagedTimeoutMs) {
+    this.userEngagedTimeoutMs = userEngagedTimeoutMs;
+  }
+
+  @Override
+  public boolean handleMessage(Message msg) {
+    if (msg.what == MSG_USER_ENGAGED_TIMEOUT) {
+      List<MediaSession> sessions = mediaSessionService.getSessions();
+      for (int i = 0; i < sessions.size(); i++) {
+        mediaSessionService.onUpdateNotificationInternal(
+            sessions.get(i), /* startInForegroundWhenPaused= */ false);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /* package */ boolean shouldRunInForeground(boolean startInForegroundWhenPaused) {
+    boolean isUserEngaged = isAnySessionUserEngaged(startInForegroundWhenPaused);
+    boolean useTimeout = isUserEngagedTimeoutEnabled && userEngagedTimeoutMs > 0;
+    if (this.isUserEngaged && !isUserEngaged && useTimeout) {
+      mainHandler.sendEmptyMessageDelayed(MSG_USER_ENGAGED_TIMEOUT, userEngagedTimeoutMs);
+    } else if (isUserEngaged) {
+      mainHandler.removeMessages(MSG_USER_ENGAGED_TIMEOUT);
+    }
+    this.isUserEngaged = isUserEngaged;
+    boolean hasPendingTimeout = mainHandler.hasMessages(MSG_USER_ENGAGED_TIMEOUT);
+    return isUserEngaged || hasPendingTimeout;
+  }
+
+  private boolean isAnySessionUserEngaged(boolean startInForegroundWhenPaused) {
+    List<MediaSession> sessions = mediaSessionService.getSessions();
+    for (int i = 0; i < sessions.size(); i++) {
+      @Nullable MediaController controller = getConnectedControllerForSession(sessions.get(i));
+      if (controller != null
+          && (controller.getPlayWhenReady() || startInForegroundWhenPaused)
+          && (controller.getPlaybackState() == Player.STATE_READY
+              || controller.getPlaybackState() == Player.STATE_BUFFERING)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Permanently disable the user engaged timeout, which is needed to immediately stop the
+   * foreground service.
+   */
+  /* package */ void disableUserEngagedTimeout() {
+    isUserEngagedTimeoutEnabled = false;
+    if (mainHandler.hasMessages(MSG_USER_ENGAGED_TIMEOUT)) {
+      mainHandler.removeMessages(MSG_USER_ENGAGED_TIMEOUT);
+      List<MediaSession> sessions = mediaSessionService.getSessions();
+      for (int i = 0; i < sessions.size(); i++) {
+        mediaSessionService.onUpdateNotificationInternal(
+            sessions.get(i), /* startInForegroundWhenPaused= */ false);
+      }
+    }
   }
 
   private void onNotificationUpdated(
       int notificationSequence, MediaSession session, MediaNotification mediaNotification) {
     if (notificationSequence == totalNotificationCount) {
       boolean startInForegroundRequired =
-          shouldRunInForeground(session, /* startInForegroundWhenPaused= */ false);
+          shouldRunInForeground(/* startInForegroundWhenPaused= */ false);
       updateNotificationInternal(session, mediaNotification, startInForegroundRequired);
+    }
+  }
+
+  private void onNotificationDismissed(MediaSession session) {
+    @Nullable ControllerInfo controllerInfo = controllerMap.get(session);
+    if (controllerInfo != null) {
+      controllerInfo.wasNotificationDismissed = true;
     }
   }
 
@@ -222,25 +288,16 @@ import java.util.concurrent.TimeoutException;
       // (https://github.com/androidx/media/issues/192).
       notificationManagerCompat.notify(
           mediaNotification.notificationId, mediaNotification.notification);
-      maybeStopForegroundService(/* removeNotifications= */ false);
+      stopForeground(/* removeNotifications= */ false);
     }
   }
 
-  /**
-   * Stops the service from the foreground, if no player is actively playing content.
-   *
-   * @param removeNotifications Whether to remove notifications, if the service is stopped from the
-   *     foreground.
-   */
-  private void maybeStopForegroundService(boolean removeNotifications) {
-    List<MediaSession> sessions = mediaSessionService.getSessions();
-    for (int i = 0; i < sessions.size(); i++) {
-      if (shouldRunInForeground(sessions.get(i), /* startInForegroundWhenPaused= */ false)) {
-        return;
-      }
-    }
-    stopForeground(removeNotifications);
-    if (removeNotifications && mediaNotification != null) {
+  /** Removes the notification and stops the foreground service if running. */
+  private void removeNotification() {
+    // To hide the notification on all API levels, we need to call both Service.stopForeground(true)
+    // and notificationManagerCompat.cancel(notificationId).
+    stopForeground(/* removeNotifications= */ true);
+    if (mediaNotification != null) {
       notificationManagerCompat.cancel(mediaNotification.notificationId);
       // Update the notification count so that if a pending notification callback arrives (e.g., a
       // bitmap is loaded), we don't show the notification.
@@ -251,19 +308,25 @@ import java.util.concurrent.TimeoutException;
 
   private boolean shouldShowNotification(MediaSession session) {
     MediaController controller = getConnectedControllerForSession(session);
-    return controller != null
-        && !controller.getCurrentTimeline().isEmpty()
-        && controller.getPlaybackState() != Player.STATE_IDLE;
+    if (controller == null || controller.getCurrentTimeline().isEmpty()) {
+      return false;
+    }
+    ControllerInfo controllerInfo = checkNotNull(controllerMap.get(session));
+    if (controller.getPlaybackState() != Player.STATE_IDLE) {
+      // Playback restarted, reset previous notification dismissed flag.
+      controllerInfo.wasNotificationDismissed = false;
+    }
+    return !controllerInfo.wasNotificationDismissed;
   }
 
   @Nullable
   private MediaController getConnectedControllerForSession(MediaSession session) {
-    ListenableFuture<MediaController> controller = controllerMap.get(session);
-    if (controller == null || !controller.isDone()) {
+    @Nullable ControllerInfo controllerInfo = controllerMap.get(session);
+    if (controllerInfo == null || !controllerInfo.controllerFuture.isDone()) {
       return null;
     }
     try {
-      return Futures.getDone(controller);
+      return Futures.getDone(controllerInfo.controllerFuture);
     } catch (ExecutionException exception) {
       // We should never reach this.
       throw new IllegalStateException(exception);
@@ -302,8 +365,7 @@ import java.util.concurrent.TimeoutException;
     }
   }
 
-  private static final class MediaControllerListener
-      implements MediaController.Listener, Player.Listener {
+  private final class MediaControllerListener implements MediaController.Listener, Player.Listener {
     private final MediaSessionService mediaSessionService;
     private final MediaSession session;
 
@@ -331,6 +393,17 @@ import java.util.concurrent.TimeoutException;
         MediaController controller, SessionCommands commands) {
       mediaSessionService.onUpdateNotificationInternal(
           session, /* startInForegroundWhenPaused= */ false);
+    }
+
+    @Override
+    public ListenableFuture<SessionResult> onCustomCommand(
+        MediaController controller, SessionCommand command, Bundle args) {
+      @SessionResult.Code int resultCode = SessionError.ERROR_NOT_SUPPORTED;
+      if (command.customAction.equals(MediaNotification.NOTIFICATION_DISMISSED_EVENT_KEY)) {
+        onNotificationDismissed(session);
+        resultCode = SessionResult.RESULT_SUCCESS;
+      }
+      return Futures.immediateFuture(new SessionResult(resultCode));
     }
 
     @Override
@@ -371,14 +444,24 @@ import java.util.concurrent.TimeoutException;
   }
 
   private void stopForeground(boolean removeNotifications) {
-    // To hide the notification on all API levels, we need to call both Service.stopForeground(true)
-    // and notificationManagerCompat.cancel(notificationId).
     if (Util.SDK_INT >= 24) {
       Api24.stopForeground(mediaSessionService, removeNotifications);
     } else {
       mediaSessionService.stopForeground(removeNotifications);
     }
     startedInForeground = false;
+  }
+
+  private static final class ControllerInfo {
+
+    public final ListenableFuture<MediaController> controllerFuture;
+
+    /** Indicates whether the user actively dismissed the notification. */
+    public boolean wasNotificationDismissed;
+
+    public ControllerInfo(ListenableFuture<MediaController> controllerFuture) {
+      this.controllerFuture = controllerFuture;
+    }
   }
 
   @RequiresApi(24)

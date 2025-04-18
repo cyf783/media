@@ -26,6 +26,7 @@ import android.media.MediaDrmException;
 import android.media.NotProvisionedException;
 import android.media.UnsupportedSchemeException;
 import android.media.metrics.LogSessionId;
+import android.os.Build;
 import android.os.PersistableBundle;
 import android.text.TextUtils;
 import androidx.annotation.Nullable;
@@ -41,6 +42,7 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.analytics.PlayerId;
 import androidx.media3.extractor.mp4.PsshAtomUtil;
+import androidx.media3.extractor.mp4.PsshAtomUtil.PsshAtom;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -297,11 +299,14 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
     } else {
       MediaCrypto mediaCrypto = null;
       try {
-        mediaCrypto = new MediaCrypto(uuid, sessionId);
+        mediaCrypto = new MediaCrypto(adjustUuid(uuid), sessionId);
         result = mediaCrypto.requiresSecureDecoderComponent(mimeType);
       } catch (MediaCryptoException e) {
-        // This shouldn't happen, but if it does then assume that a secure decoder may be required.
-        result = true;
+        // This shouldn't happen, but if it does then assume that most DRM schemes need a secure
+        // decoder but ClearKey doesn't (because ClearKey never uses secure decryption). Requesting
+        // a secure decoder when it's not supported leads to playback failures:
+        // https://github.com/androidx/media/issues/1732
+        result = !uuid.equals(C.CLEARKEY_UUID);
       } finally {
         if (mediaCrypto != null) {
           mediaCrypto.release();
@@ -432,8 +437,8 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
       for (int i = 0; i < schemeDatas.size(); i++) {
         SchemeData schemeData = schemeDatas.get(i);
         byte[] schemeDataData = Assertions.checkNotNull(schemeData.data);
-        if (Util.areEqual(schemeData.mimeType, firstSchemeData.mimeType)
-            && Util.areEqual(schemeData.licenseServerUrl, firstSchemeData.licenseServerUrl)
+        if (Objects.equals(schemeData.mimeType, firstSchemeData.mimeType)
+            && Objects.equals(schemeData.licenseServerUrl, firstSchemeData.licenseServerUrl)
             && PsshAtomUtil.isPsshAtom(schemeDataData)) {
           concatenatedDataLength += schemeDataData.length;
         } else {
@@ -473,8 +478,7 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
   }
 
   private static UUID adjustUuid(UUID uuid) {
-    // ClearKey had to be accessed using the Common PSSH UUID prior to API level 27.
-    return Util.SDK_INT < 27 && C.CLEARKEY_UUID.equals(uuid) ? C.COMMON_PSSH_UUID : uuid;
+    return cdmRequiresCommonPsshUuid(uuid) ? C.COMMON_PSSH_UUID : uuid;
   }
 
   private static byte[] adjustRequestInitData(UUID uuid, byte[] initData) {
@@ -489,6 +493,13 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
           PsshAtomUtil.buildPsshAtom(
               C.PLAYREADY_UUID, addLaUrlAttributeIfMissing(schemeSpecificData));
     }
+    if (cdmRequiresCommonPsshUuid(uuid)) {
+      PsshAtom psshAtom = PsshAtomUtil.parsePsshAtom(initData);
+      if (psshAtom != null) {
+        initData =
+            PsshAtomUtil.buildPsshAtom(C.COMMON_PSSH_UUID, psshAtom.keyIds, psshAtom.schemeData);
+      }
+    }
 
     // Prior to API level 21, the Widevine CDM required scheme specific data to be extracted from
     // the PSSH atom. We also extract the data on API levels 21 and 22 because these API levels
@@ -499,11 +510,11 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
     // Some Amazon devices also require data to be extracted from the PSSH atom for PlayReady.
     if ((Util.SDK_INT < 23 && C.WIDEVINE_UUID.equals(uuid))
         || (C.PLAYREADY_UUID.equals(uuid)
-            && "Amazon".equals(Util.MANUFACTURER)
-            && ("AFTB".equals(Util.MODEL) // Fire TV Gen 1
-                || "AFTS".equals(Util.MODEL) // Fire TV Gen 2
-                || "AFTM".equals(Util.MODEL) // Fire TV Stick Gen 1
-                || "AFTT".equals(Util.MODEL)))) { // Fire TV Stick Gen 2
+            && "Amazon".equals(Build.MANUFACTURER)
+            && ("AFTB".equals(Build.MODEL) // Fire TV Gen 1
+                || "AFTS".equals(Build.MODEL) // Fire TV Gen 2
+                || "AFTM".equals(Build.MODEL) // Fire TV Stick Gen 1
+                || "AFTT".equals(Build.MODEL)))) { // Fire TV Stick Gen 2
       byte[] psshData = PsshAtomUtil.parseSchemeSpecificData(initData, uuid);
       if (psshData != null) {
         // Extraction succeeded, so return the extracted data.
@@ -530,6 +541,11 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
     return requestData;
   }
 
+  private static boolean cdmRequiresCommonPsshUuid(UUID uuid) {
+    // ClearKey had to be accessed using the Common PSSH UUID prior to API level 27.
+    return Util.SDK_INT < 27 && Objects.equals(uuid, C.CLEARKEY_UUID);
+  }
+
   private static void forceWidevineL3(MediaDrm mediaDrm) {
     mediaDrm.setPropertyString("securityLevel", "L3");
   }
@@ -540,7 +556,7 @@ public final class FrameworkMediaDrm implements ExoMediaDrm {
    * <p>See <a href="https://github.com/google/ExoPlayer/issues/4413">GitHub issue #4413</a>.
    */
   private static boolean needsForceWidevineL3Workaround() {
-    return "ASUS_Z00AD".equals(Util.MODEL);
+    return "ASUS_Z00AD".equals(Build.MODEL);
   }
 
   /**

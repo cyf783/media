@@ -39,6 +39,7 @@ import android.media.MediaCrypto;
 import android.media.MediaCryptoException;
 import android.media.MediaFormat;
 import android.media.metrics.LogSessionId;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import androidx.annotation.CallSuper;
@@ -86,6 +87,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
+import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
 /** An abstract renderer that uses {@link MediaCodec} to decode samples for rendering. */
@@ -331,10 +333,10 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   private final OggOpusAudioPacketizer oggOpusAudioPacketizer;
 
   @Nullable private Format inputFormat;
-  @Nullable private Format outputFormat;
+  private @MonotonicNonNull Format outputFormat;
   @Nullable private DrmSession codecDrmSession;
   @Nullable private DrmSession sourceDrmSession;
-  @Nullable private WakeupListener wakeupListener;
+  private @MonotonicNonNull WakeupListener wakeupListener;
 
   /**
    * A framework {@link MediaCrypto} for use with {@link MediaCodec#queueSecureInputBuffer(int, int,
@@ -495,9 +497,9 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   @Override
   public final long getDurationToProgressUs(long positionUs, long elapsedRealtimeUs) {
     return getDurationToProgressUs(
-        /* isOnBufferAvailableListenerRegistered= */ codecRegisteredOnBufferAvailableListener,
         positionUs,
-        elapsedRealtimeUs);
+        elapsedRealtimeUs,
+        /* isOnBufferAvailableListenerRegistered= */ codecRegisteredOnBufferAvailableListener);
   }
 
   /**
@@ -519,17 +521,17 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
    * decoder input and output buffers become available. These callbacks may affect the calculated
    * minimum time playback must advance before a {@link #render} call can make progress.
    *
-   * @param isOnBufferAvailableListenerRegistered Whether the {@code Renderer} is using a {@link
-   *     MediaCodecAdapter} with successfully registered {@link
-   *     MediaCodecAdapter.OnBufferAvailableListener OnBufferAvailableListener}.
    * @param positionUs The current media time in microseconds, measured at the start of the current
    *     iteration of the rendering loop.
    * @param elapsedRealtimeUs {@link android.os.SystemClock#elapsedRealtime()} in microseconds,
    *     measured at the start of the current iteration of the rendering loop.
+   * @param isOnBufferAvailableListenerRegistered Whether the {@code Renderer} is using a {@link
+   *     MediaCodecAdapter} with successfully registered {@link
+   *     MediaCodecAdapter.OnBufferAvailableListener OnBufferAvailableListener}.
    * @return minimum time playback must advance before renderer is able to make progress.
    */
   protected long getDurationToProgressUs(
-      boolean isOnBufferAvailableListenerRegistered, long positionUs, long elapsedRealtimeUs) {
+      long positionUs, long elapsedRealtimeUs, boolean isOnBufferAvailableListenerRegistered) {
     return super.getDurationToProgressUs(positionUs, elapsedRealtimeUs);
   }
 
@@ -836,7 +838,8 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   public void handleMessage(@MessageType int messageType, @Nullable Object message)
       throws ExoPlaybackException {
     if (messageType == MSG_SET_WAKEUP_LISTENER) {
-      this.wakeupListener = (WakeupListener) message;
+      wakeupListener = checkNotNull((WakeupListener) message);
+      onWakeupListenerSet(wakeupListener);
     } else {
       super.handleMessage(messageType, message);
     }
@@ -1099,7 +1102,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
 
   private void maybeInitCodecWithFallback(
       @Nullable MediaCrypto crypto, boolean mediaCryptoRequiresSecureDecoder)
-      throws DecoderInitializationException {
+      throws DecoderInitializationException, ExoPlaybackException {
     Format inputFormat = checkNotNull(this.inputFormat);
     if (availableCodecInfos == null) {
       try {
@@ -1132,6 +1135,10 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     ArrayDeque<MediaCodecInfo> availableCodecInfos = checkNotNull(this.availableCodecInfos);
     while (codec == null) {
       MediaCodecInfo codecInfo = checkNotNull(availableCodecInfos.peekFirst());
+      if (!maybeInitializeProcessingPipeline(inputFormat)) {
+        return;
+      }
+
       if (!shouldInitCodec(codecInfo)) {
         return;
       }
@@ -1215,7 +1222,6 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     if (codecOperatingRate <= assumedMinimumCodecOperatingRate) {
       codecOperatingRate = CODEC_OPERATING_RATE_UNSET;
     }
-    onReadyToInitializeCodec(inputFormat);
     codecInitializingTimestamp = getClock().elapsedRealtime();
     MediaCodecAdapter.Configuration configuration =
         getMediaCodecConfiguration(codecInfo, inputFormat, crypto, codecOperatingRate);
@@ -1428,9 +1434,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
       return true;
     }
 
-    if (shouldSkipDecoderInputBuffer(buffer)) {
-      buffer.clear();
-      decoderCounters.skippedInputBufferCount += 1;
+    if (shouldDiscardDecoderInputBuffer(buffer)) {
       return true;
     }
 
@@ -1486,19 +1490,19 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   }
 
   /**
-   * Called when ready to initialize the {@link MediaCodecAdapter}.
-   *
-   * <p>This method is called just before the renderer obtains the {@linkplain
-   * #getMediaCodecConfiguration configuration} for the {@link MediaCodecAdapter} and creates the
-   * adapter via the passed in {@link MediaCodecAdapter.Factory}.
+   * Initializes the processing pipeline, if needed by the implementation.
    *
    * <p>The default implementation is a no-op.
    *
    * @param format The {@link Format} for which the codec is being configured.
+   * @return Returns {@code true} when the processing pipeline is successfully initialized, or the
+   *     {@linkplain MediaCodecRenderer renderer} does not use a processing pipeline. The caller
+   *     should try again later, if {@code false} is returned.
    * @throws ExoPlaybackException If an error occurs preparing for initializing the codec.
    */
-  protected void onReadyToInitializeCodec(Format format) throws ExoPlaybackException {
+  protected boolean maybeInitializeProcessingPipeline(Format format) throws ExoPlaybackException {
     // Do nothing.
+    return true;
   }
 
   /**
@@ -1539,6 +1543,17 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
    * @param codecError The error.
    */
   protected void onCodecError(Exception codecError) {
+    // Do nothing.
+  }
+
+  /**
+   * Called when a {@link WakeupListener} is set.
+   *
+   * <p>The default implementation is a no-op.
+   *
+   * @param wakeupListener The {@link WakeupListener}.
+   */
+  protected void onWakeupListenerSet(WakeupListener wakeupListener) {
     // Do nothing.
   }
 
@@ -1733,6 +1748,33 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
    * @param buffer The input buffer.
    */
   protected boolean shouldSkipDecoderInputBuffer(DecoderInputBuffer buffer) {
+    return false;
+  }
+
+  /**
+   * Returns whether the input buffer should be discarded before decoding.
+   *
+   * <p>Implement this method to to skip decoding of buffers that are not needed during a seek, or
+   * to drop input buffers that cannot be rendered on time. See {@link
+   * C#BUFFER_FLAG_NOT_DEPENDED_ON}.
+   *
+   * <p>Subclasses that implement this method are responsible for updating {@link #decoderCounters}.
+   * For codecs with out-of-order buffers, consecutive dropped input buffers may have to be counted
+   * after frame reordering. For example, in {@link #processOutputBuffer}.
+   *
+   * <p>Implementations of this method must update the {@linkplain DecoderInputBuffer#data decoder
+   * input buffer contents}. Data that is only used for output at the current {@link
+   * DecoderInputBuffer#timeUs} should be removed. Data that is referenced by later input buffers
+   * should remain in the current buffer.
+   *
+   * @param buffer The input buffer.
+   */
+  protected boolean shouldDiscardDecoderInputBuffer(DecoderInputBuffer buffer) {
+    if (shouldSkipDecoderInputBuffer(buffer)) {
+      buffer.clear();
+      decoderCounters.skippedInputBufferCount += 1;
+      return true;
+    }
     return false;
   }
 
@@ -2453,11 +2495,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
               // TODO(b/298634018): Adjust encoderDelay value based on starting position.
               int numberPreSkipSamples =
                   OpusUtil.getPreSkipSamples(outputFormat.initializationData.get(0));
-              outputFormat =
-                  checkNotNull(outputFormat)
-                      .buildUpon()
-                      .setEncoderDelay(numberPreSkipSamples)
-                      .build();
+              outputFormat = outputFormat.buildUpon().setEncoderDelay(numberPreSkipSamples).build();
             }
             onOutputFormatChanged(outputFormat, /* mediaFormat= */ null);
             waitingForFirstSampleInFormat = false;
@@ -2476,8 +2514,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
                 getLastResetPositionUs(), bypassSampleBuffer.timeUs)) {
               // Packetize as long as frame does not precede the last reset position by more than
               // seek-preroll.
-              oggOpusAudioPacketizer.packetize(
-                  bypassSampleBuffer, checkNotNull(outputFormat).initializationData);
+              oggOpusAudioPacketizer.packetize(bypassSampleBuffer, outputFormat.initializationData);
             }
           }
           if (!haveBypassBatchBufferAndNewSampleSameDecodeOnlyState()
@@ -2549,17 +2586,17 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   private @AdaptationWorkaroundMode int codecAdaptationWorkaroundMode(String name) {
     if (Util.SDK_INT <= 25
         && "OMX.Exynos.avc.dec.secure".equals(name)
-        && (Util.MODEL.startsWith("SM-T585")
-            || Util.MODEL.startsWith("SM-A510")
-            || Util.MODEL.startsWith("SM-A520")
-            || Util.MODEL.startsWith("SM-J700"))) {
+        && (Build.MODEL.startsWith("SM-T585")
+            || Build.MODEL.startsWith("SM-A510")
+            || Build.MODEL.startsWith("SM-A520")
+            || Build.MODEL.startsWith("SM-J700"))) {
       return ADAPTATION_WORKAROUND_MODE_ALWAYS;
     } else if (Util.SDK_INT < 24
         && ("OMX.Nvidia.h264.decode".equals(name) || "OMX.Nvidia.h264.decode.secure".equals(name))
-        && ("flounder".equals(Util.DEVICE)
-            || "flounder_lte".equals(Util.DEVICE)
-            || "grouper".equals(Util.DEVICE)
-            || "tilapia".equals(Util.DEVICE))) {
+        && ("flounder".equals(Build.DEVICE)
+            || "flounder_lte".equals(Build.DEVICE)
+            || "grouper".equals(Build.DEVICE)
+            || "tilapia".equals(Build.DEVICE))) {
       return ADAPTATION_WORKAROUND_MODE_SAME_RESOLUTION;
     } else {
       return ADAPTATION_WORKAROUND_MODE_NEVER;
@@ -2605,7 +2642,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
                 || "OMX.bcm.vdec.avc.tunnel.secure".equals(name)
                 || "OMX.bcm.vdec.hevc.tunnel".equals(name)
                 || "OMX.bcm.vdec.hevc.tunnel.secure".equals(name)))
-        || ("Amazon".equals(Util.MANUFACTURER) && "AFTS".equals(Util.MODEL) && codecInfo.secure);
+        || ("Amazon".equals(Build.MANUFACTURER) && "AFTS".equals(Build.MODEL) && codecInfo.secure);
   }
 
   /**

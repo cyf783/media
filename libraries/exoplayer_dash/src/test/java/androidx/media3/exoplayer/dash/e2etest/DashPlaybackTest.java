@@ -16,14 +16,20 @@
 package androidx.media3.exoplayer.dash.e2etest;
 
 import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.run;
+import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.advance;
 import static com.google.common.truth.Truth.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.net.Uri;
 import android.view.Surface;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.Player;
@@ -44,6 +50,7 @@ import androidx.media3.exoplayer.source.LoadEventInfo;
 import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.chunk.BundledChunkExtractor;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.exoplayer.upstream.CmcdConfiguration;
 import androidx.media3.test.utils.CapturingRenderersFactory;
 import androidx.media3.test.utils.DumpFileAsserts;
 import androidx.media3.test.utils.FakeClock;
@@ -53,10 +60,14 @@ import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
 import androidx.media3.test.utils.robolectric.TestPlayerRunHelper;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 
 /** End-to-end tests using DASH samples. */
 @RunWith(AndroidJUnit4.class)
@@ -85,8 +96,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/standalone-webvtt/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -123,8 +136,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/standalone-webvtt/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).ignoringNonFatalErrors().untilFullyBuffered();
     player.play();
-    run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
+    advance(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -160,8 +175,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/standalone-webvtt/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).ignoringNonFatalErrors().untilFullyBuffered();
     player.play();
-    run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
+    advance(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -195,8 +212,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/standalone-ttml/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -224,8 +243,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/webvtt-in-mp4/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -252,8 +273,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/ttml-in-mp4/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -290,8 +313,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/ttml-in-mp4/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).ignoringNonFatalErrors().untilFullyBuffered();
     player.play();
-    run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
+    advance(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -327,8 +352,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/ttml-in-mp4/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).ignoringNonFatalErrors().untilFullyBuffered();
     player.play();
-    run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
+    advance(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -369,8 +396,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/cea608/manifest.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -407,8 +436,10 @@ public final class DashPlaybackTest {
     trackSelector.setParameters(trackSelector.buildUponParameters().setPreferredTextLanguage("en"));
     player.setMediaItem(MediaItem.fromUri("asset:///media/dash/cea608/manifest.mpd"));
     player.prepare();
+    // Ensure media is fully buffered so that the first subtitle is ready at the start of playback.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -567,7 +598,8 @@ public final class DashPlaybackTest {
     CapturingRenderersFactory capturingRenderersFactory =
         new CapturingRenderersFactory(applicationContext);
     BundledChunkExtractor.Factory chunkExtractorFactory =
-        new BundledChunkExtractor.Factory().experimentalParseWithinGopSampleDependencies(true);
+        new BundledChunkExtractor.Factory()
+            .experimentalSetCodecsToParseWithinGopSampleDependencies(C.VIDEO_CODEC_FLAG_H264);
     DataSource.Factory defaultDataSourceFactory = new DefaultDataSource.Factory(applicationContext);
     DashMediaSource.Factory dashMediaSourceFactory =
         new DashMediaSource.Factory(
@@ -599,7 +631,8 @@ public final class DashPlaybackTest {
   public void playVideo_usingWithinGopSampleDependencies_withSeekAfterEoS() throws Exception {
     Context applicationContext = ApplicationProvider.getApplicationContext();
     BundledChunkExtractor.Factory chunkExtractorFactory =
-        new BundledChunkExtractor.Factory().experimentalParseWithinGopSampleDependencies(true);
+        new BundledChunkExtractor.Factory()
+            .experimentalSetCodecsToParseWithinGopSampleDependencies(C.VIDEO_CODEC_FLAG_H264);
     DataSource.Factory defaultDataSourceFactory = new DefaultDataSource.Factory(applicationContext);
     DashMediaSource.Factory dashMediaSourceFactory =
         new DashMediaSource.Factory(
@@ -627,6 +660,43 @@ public final class DashPlaybackTest {
   }
 
   @Test
+  public void playVideo_usingWithinGopSampleDependenciesOnH265_withSeek() throws Exception {
+    Context applicationContext = ApplicationProvider.getApplicationContext();
+    CapturingRenderersFactory capturingRenderersFactory =
+        new CapturingRenderersFactory(applicationContext);
+    BundledChunkExtractor.Factory chunkExtractorFactory =
+        new BundledChunkExtractor.Factory()
+            .experimentalSetCodecsToParseWithinGopSampleDependencies(C.VIDEO_CODEC_FLAG_H265);
+    DataSource.Factory defaultDataSourceFactory = new DefaultDataSource.Factory(applicationContext);
+    DashMediaSource.Factory dashMediaSourceFactory =
+        new DashMediaSource.Factory(
+            /* chunkSourceFactory= */ new DefaultDashChunkSource.Factory(
+                chunkExtractorFactory, defaultDataSourceFactory, /* maxSegmentsPerLoad= */ 1),
+            /* manifestDataSourceFactory= */ defaultDataSourceFactory);
+    ExoPlayer player =
+        new ExoPlayer.Builder(applicationContext, capturingRenderersFactory)
+            .setMediaSourceFactory(dashMediaSourceFactory)
+            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
+            .build();
+    player.setTrackSelectionParameters(
+        player.getTrackSelectionParameters().buildUpon().setPreferredTextLanguage("en").build());
+    Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
+    player.setVideoSurface(surface);
+    PlaybackOutput playbackOutput = PlaybackOutput.register(player, capturingRenderersFactory);
+
+    player.setMediaItem(MediaItem.fromUri("asset:///media/dash/captions_h265/manifest.mpd"));
+    player.seekTo(500L);
+    player.prepare();
+    player.play();
+    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    player.release();
+    surface.release();
+
+    DumpFileAsserts.assertOutput(
+        applicationContext, playbackOutput, "playbackdumps/dash/optimized_seek_h265.dump");
+  }
+
+  @Test
   public void multiPeriod_withOffsetInSegment() throws Exception {
     Context applicationContext = ApplicationProvider.getApplicationContext();
     CapturingRenderersFactory capturingRenderersFactory =
@@ -642,8 +712,10 @@ public final class DashPlaybackTest {
     player.setMediaItem(
         MediaItem.fromUri("asset:///media/dash/multi-period-with-offset/sample.mpd"));
     player.prepare();
+    // Ensure media is fully buffered to avoid flakiness from loading second period too late.
+    advance(player).untilFullyBuffered();
     player.play();
-    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -651,7 +723,81 @@ public final class DashPlaybackTest {
         applicationContext, playbackOutput, "playbackdumps/dash/multi-period-with-offset.dump");
   }
 
-  private static class AnalyticsListenerImpl implements AnalyticsListener {
+  @Test
+  public void cmcdEnabled_withInitSegment() throws Exception {
+    Context applicationContext = ApplicationProvider.getApplicationContext();
+    CapturingRenderersFactory capturingRenderersFactory =
+        new CapturingRenderersFactory(applicationContext);
+    ExoPlayer player =
+        new ExoPlayer.Builder(applicationContext, capturingRenderersFactory)
+            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
+            .setMediaSourceFactory(
+                new DefaultMediaSourceFactory(applicationContext)
+                    .setCmcdConfigurationFactory(CmcdConfiguration.Factory.DEFAULT))
+            .build();
+    Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
+    player.setVideoSurface(surface);
+    PlaybackOutput playbackOutput = PlaybackOutput.register(player, capturingRenderersFactory);
+
+    player.setMediaItem(MediaItem.fromUri("asset:///media/dash/multi-track/sample.mpd"));
+    player.prepare();
+    player.play();
+    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    player.release();
+    surface.release();
+
+    DumpFileAsserts.assertOutput(
+        applicationContext,
+        playbackOutput,
+        "playbackdumps/dash/cmcd-enabled-with-init-segment.dump");
+  }
+
+  @Test
+  public void loadEventsReportedAsExpected() throws Exception {
+    Context applicationContext = ApplicationProvider.getApplicationContext();
+    ExoPlayer player =
+        new ExoPlayer.Builder(applicationContext)
+            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
+            .build();
+    AnalyticsListenerImpl analyticsListener = new AnalyticsListenerImpl();
+    player.addAnalyticsListener(analyticsListener);
+    AnalyticsListener mockAnalyticsListener = mock(AnalyticsListener.class);
+    player.addAnalyticsListener(mockAnalyticsListener);
+    Uri manifestUri = Uri.parse("asset:///media/dash/emsg/sample.mpd");
+
+    player.setMediaItem(MediaItem.fromUri(manifestUri));
+    player.prepare();
+    player.play();
+    TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_ENDED);
+    player.release();
+
+    ArgumentCaptor<LoadEventInfo> loadStartedEventInfoCaptor =
+        ArgumentCaptor.forClass(LoadEventInfo.class);
+    verify(mockAnalyticsListener, atLeastOnce())
+        .onLoadStarted(any(), loadStartedEventInfoCaptor.capture(), any(), anyInt());
+    List<Uri> loadStartedUris =
+        Lists.transform(loadStartedEventInfoCaptor.getAllValues(), i -> i.uri);
+    List<Uri> loadStartedDataSpecUris =
+        Lists.transform(loadStartedEventInfoCaptor.getAllValues(), i -> i.dataSpec.uri);
+    // Remove duplicates in case the load was split into multiple reads.
+    assertThat(ImmutableSet.copyOf(loadStartedUris))
+        .containsExactly(manifestUri, Uri.parse("asset:///media/dash/emsg/sample.audio.mp4"));
+    // The two sources of URI should match (because there's no redirection).
+    assertThat(loadStartedDataSpecUris).containsExactlyElementsIn(loadStartedUris).inOrder();
+    ArgumentCaptor<LoadEventInfo> loadCompletedEventInfoCaptor =
+        ArgumentCaptor.forClass(LoadEventInfo.class);
+    verify(mockAnalyticsListener, atLeastOnce())
+        .onLoadCompleted(any(), loadCompletedEventInfoCaptor.capture(), any());
+    List<Uri> loadCompletedUris =
+        Lists.transform(loadCompletedEventInfoCaptor.getAllValues(), i -> i.uri);
+    List<Uri> loadCompletedDataSpecUris =
+        Lists.transform(loadCompletedEventInfoCaptor.getAllValues(), i -> i.dataSpec.uri);
+    // Every started load should be completed.
+    assertThat(loadCompletedUris).containsExactlyElementsIn(loadStartedUris);
+    assertThat(loadCompletedDataSpecUris).containsExactlyElementsIn(loadStartedUris);
+  }
+
+  private static final class AnalyticsListenerImpl implements AnalyticsListener {
 
     @Nullable private LoadEventInfo loadErrorEventInfo;
     @Nullable private IOException loadError;

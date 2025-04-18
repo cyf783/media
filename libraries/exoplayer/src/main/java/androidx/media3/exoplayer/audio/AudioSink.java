@@ -160,7 +160,7 @@ public interface AudioSink {
   /** Configuration parameters used for an {@link AudioTrack}. */
   final class AudioTrackConfig {
 
-    /* The {@link C.Encoding} of the audio data. */
+    /** The {@link C.Encoding} of the audio data. */
     public final @C.Encoding int encoding;
 
     /** The sample rate of the audio data. */
@@ -590,6 +590,15 @@ public interface AudioSink {
    * @param outputStreamOffsetUs The output stream offset in microseconds.
    */
   default void setOutputStreamOffsetUs(long outputStreamOffsetUs) {}
+
+  /**
+   * Returns the size of the underlying {@link AudioTrack} buffer in microseconds. If unsupported or
+   * the {@link AudioTrack} is not initialized then return {@link C#TIME_UNSET}.
+   *
+   * <p>If the {@link AudioTrack} is configured with a compressed encoding, then the returned
+   * duration is an estimated minimum based on the encoding's maximum encoded byte rate.
+   */
+  long getAudioTrackBufferSizeUs();
 
   /**
    * Enables tunneling, if possible. The sink is reset if tunneling was previously disabled.

@@ -95,7 +95,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import org.checkerframework.checker.initialization.qual.Initialized;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /* package */ class MediaSessionImpl {
 
@@ -136,7 +135,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
   private PlayerInfo playerInfo;
   private PlayerWrapper playerWrapper;
-  private @MonotonicNonNull PendingIntent sessionActivity;
+  @Nullable private PendingIntent sessionActivity;
   @Nullable private PlayerListener playerListener;
   @Nullable private MediaSession.Listener mediaSessionListener;
   @Nullable private ControllerInfo controllerForCurrentRequest;
@@ -526,7 +525,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public ListenableFuture<SessionResult> setMediaButtonPreferences(
       ControllerInfo controller, ImmutableList<CommandButton> mediaButtonPreferences) {
     if (isMediaNotificationController(controller)) {
-      playerWrapper.setMediaButtonPreferences(mediaButtonPreferences);
+      setLegacyMediaButtonPreferences(mediaButtonPreferences);
       sessionLegacyStub.updateLegacySessionPlaybackState(playerWrapper);
     }
     return dispatchRemoteControllerTask(
@@ -540,7 +539,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    */
   public void setMediaButtonPreferences(ImmutableList<CommandButton> mediaButtonPreferences) {
     this.mediaButtonPreferences = mediaButtonPreferences;
-    playerWrapper.setMediaButtonPreferences(mediaButtonPreferences);
+    setLegacyMediaButtonPreferences(mediaButtonPreferences);
     dispatchRemoteControllerTaskWithoutReturn(
         (controller, seq) -> controller.setMediaButtonPreferences(seq, mediaButtonPreferences));
   }
@@ -722,14 +721,18 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
             "Callback.onConnect must return non-null future");
     if (isMediaNotificationController(controller) && connectionResult.isAccepted) {
       isMediaNotificationControllerConnected = true;
-      playerWrapper.setCustomLayout(
-          connectionResult.customLayout != null
-              ? connectionResult.customLayout
-              : instance.getCustomLayout());
-      playerWrapper.setMediaButtonPreferences(
+      ImmutableList<CommandButton> mediaButtonPreferences =
           connectionResult.mediaButtonPreferences != null
               ? connectionResult.mediaButtonPreferences
-              : instance.getMediaButtonPreferences());
+              : instance.getMediaButtonPreferences();
+      if (mediaButtonPreferences.isEmpty()) {
+        playerWrapper.setCustomLayout(
+            connectionResult.customLayout != null
+                ? connectionResult.customLayout
+                : instance.getCustomLayout());
+      } else {
+        setLegacyMediaButtonPreferences(mediaButtonPreferences);
+      }
       setAvailableFrameworkControllerCommands(
           connectionResult.availableSessionCommands, connectionResult.availablePlayerCommands);
     }
@@ -846,7 +849,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   @UnstableApi
-  protected void setSessionActivity(PendingIntent sessionActivity) {
+  protected void setSessionActivity(@Nullable PendingIntent sessionActivity) {
     this.sessionActivity = sessionActivity;
     ImmutableList<ControllerInfo> connectedControllers =
         sessionStub.getConnectedControllersManager().getConnectedControllers();
@@ -856,7 +859,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   @UnstableApi
-  protected void setSessionActivity(ControllerInfo controller, PendingIntent sessionActivity) {
+  protected void setSessionActivity(
+      ControllerInfo controller, @Nullable PendingIntent sessionActivity) {
     if (controller.getControllerVersion() >= 3
         && sessionStub.getConnectedControllersManager().isConnected(controller)) {
       dispatchRemoteControllerTaskWithoutReturn(
@@ -1037,12 +1041,23 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
   }
 
+  private void setLegacyMediaButtonPreferences(
+      ImmutableList<CommandButton> mediaButtonPreferences) {
+    boolean extrasChanged = playerWrapper.setMediaButtonPreferences(mediaButtonPreferences);
+    if (extrasChanged) {
+      sessionLegacyStub.getSessionCompat().setExtras(playerWrapper.getLegacyExtras());
+    }
+  }
+
   private void setAvailableFrameworkControllerCommands(
       SessionCommands sessionCommands, Player.Commands playerCommands) {
     boolean commandGetTimelineChanged =
         playerWrapper.getAvailablePlayerCommands().contains(Player.COMMAND_GET_TIMELINE)
             != playerCommands.contains(Player.COMMAND_GET_TIMELINE);
-    playerWrapper.setAvailableCommands(sessionCommands, playerCommands);
+    boolean extrasChanged = playerWrapper.setAvailableCommands(sessionCommands, playerCommands);
+    if (extrasChanged) {
+      sessionLegacyStub.getSessionCompat().setExtras(playerWrapper.getLegacyExtras());
+    }
     if (commandGetTimelineChanged) {
       sessionLegacyStub.updateLegacySessionPlaybackStateAndQueue(playerWrapper);
     } else {
@@ -1307,10 +1322,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       return false;
     }
     // Send from media notification controller.
-    return applyMediaButtonKeyEvent(keyEvent, doubleTapCompleted);
+    boolean isDismissNotificationEvent =
+        intent.getBooleanExtra(
+            MediaNotification.NOTIFICATION_DISMISSED_EVENT_KEY, /* defaultValue= */ false);
+    return applyMediaButtonKeyEvent(keyEvent, doubleTapCompleted, isDismissNotificationEvent);
   }
 
-  private boolean applyMediaButtonKeyEvent(KeyEvent keyEvent, boolean doubleTapCompleted) {
+  private boolean applyMediaButtonKeyEvent(
+      KeyEvent keyEvent, boolean doubleTapCompleted, boolean isDismissNotificationEvent) {
     ControllerInfo controllerInfo = checkNotNull(instance.getMediaNotificationControllerInfo());
     Runnable command;
     int keyCode = keyEvent.getKeyCode();
@@ -1360,6 +1379,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     postOrRun(
         getApplicationHandler(),
         () -> {
+          if (isDismissNotificationEvent) {
+            ListenableFuture<SessionResult> ignored =
+                sendCustomCommand(
+                    controllerInfo,
+                    new SessionCommand(
+                        MediaNotification.NOTIFICATION_DISMISSED_EVENT_KEY,
+                        /* extras= */ Bundle.EMPTY),
+                    /* args= */ Bundle.EMPTY);
+          }
           command.run();
           sessionStub.getConnectedControllersManager().flushCommandQueue(controllerInfo);
         });
@@ -1887,7 +1915,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       playPauseTask =
           () -> {
             if (isMediaNotificationController(controllerInfo)) {
-              applyMediaButtonKeyEvent(keyEvent, /* doubleTapCompleted= */ false);
+              applyMediaButtonKeyEvent(
+                  keyEvent,
+                  /* doubleTapCompleted= */ false,
+                  /* isDismissNotificationEvent= */ false);
             } else {
               sessionLegacyStub.handleMediaPlayPauseOnHandler(
                   checkNotNull(controllerInfo.getRemoteUserInfo()));
