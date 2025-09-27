@@ -118,13 +118,13 @@ public final class HlsAdsParser {
 
   private static int getMinorityCountThreshold(double totalMinutes) {
     if (totalMinutes <= 30) {
-      return 1;
-    } else if (totalMinutes <= 60) {
       return 2;
-    } else if (totalMinutes <= 90) {
+    } else if (totalMinutes <= 60) {
       return 3;
-    } else {
+    } else if (totalMinutes <= 90) {
       return 4;
+    } else {
+      return 5;
     }
   }
 
