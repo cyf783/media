@@ -30,25 +30,31 @@ public final class HlsAdsParser {
   private static final double MIN_MAJORITY_GROUP_RATIO = 0.85;
 
   public static String process(String m3u8) {
-    Log.d(TAG, "Executing HlsAdsParser...");
     if (TextUtils.isEmpty(m3u8) || !m3u8.contains(TAG_ENDLIST)) {
       return m3u8;
     }
+    Log.d(TAG, "Executing HlsAdsParser...");
+    long startTime = System.currentTimeMillis();
     String[] lines = m3u8.split("\\r?\\n");
     Set<String> adSegments = findAds(lines);
     if (adSegments.isEmpty()) {
       Log.d(TAG, "No ad segments detected. Returning original content.");
+      long endTime = System.currentTimeMillis();
+      Log.d(TAG, "Total processing time: " + (endTime - startTime) + "ms");
       return m3u8;
     }
     Log.d(TAG, "Detected " + adSegments.size() + " ad segments to remove. Rebuilding playlist...");
     for (String adSegment : adSegments) {
       Log.d(TAG, "  -> Removing: " + adSegment);
     }
-    return rebuildM3u8(lines, adSegments);
+    String result = rebuildM3u8(lines, adSegments);
+    long endTime = System.currentTimeMillis();
+    Log.d(TAG, "Total processing time: " + (endTime - startTime) + "ms");
+    return result;
   }
 
   private static Set<String> findAds(String[] lines) {
-    Log.d(TAG, "===== Executing Primary Strategy: Filename/Path Analysis =====");
+    Log.d(TAG, "Executing Primary Strategy: Filename/Path Analysis...");
     List<String> allSegments = new ArrayList<>();
     for (String line : lines) {
       String trimmedLine = line.trim();
