@@ -89,7 +89,6 @@ public final class FlvExtractor implements Extractor {
   private int tagDataSize;
   private long tagTimestampUs;
   private boolean outputSeekMap;
-  private boolean tracksEnded;
   private @MonotonicNonNull AudioTagPayloadReader audioReader;
   private @MonotonicNonNull VideoTagPayloadReader videoReader;
 
@@ -147,7 +146,6 @@ public final class FlvExtractor implements Extractor {
       state = STATE_READING_TAG_HEADER;
     }
     bytesToNextTagHeader = 0;
-    tracksEnded = false;
   }
 
   @Override
@@ -201,7 +199,19 @@ public final class FlvExtractor implements Extractor {
 
     headerBuffer.setPosition(0);
     headerBuffer.skipBytes(4);
-    headerBuffer.skipBytes(1);
+    int flags = headerBuffer.readUnsignedByte();
+    boolean hasAudio = (flags & 0x04) != 0;
+    boolean hasVideo = (flags & 0x01) != 0;
+    if (audioReader == null) {
+      audioReader =
+          new AudioTagPayloadReader(extractorOutput.track(TAG_TYPE_AUDIO, C.TRACK_TYPE_AUDIO));
+    }
+    if (videoReader == null) {
+      videoReader =
+          new VideoTagPayloadReader(extractorOutput.track(TAG_TYPE_VIDEO, C.TRACK_TYPE_VIDEO));
+    }
+    extractorOutput.endTracks();
+
     // We need to skip any additional content in the FLV header, plus the 4 byte previous tag size.
     bytesToNextTagHeader = headerBuffer.readInt() - FLV_HEADER_SIZE + 4;
     state = STATE_SKIPPING_TO_TAG_HEADER;
@@ -255,24 +265,10 @@ public final class FlvExtractor implements Extractor {
     boolean wasConsumed = true;
     boolean wasSampleOutput = false;
     long timestampUs = getCurrentTimestampUs();
-    if (tagType == TAG_TYPE_AUDIO) {
-      if (audioReader == null) {
-        audioReader = new AudioTagPayloadReader(extractorOutput.track(TAG_TYPE_AUDIO, C.TRACK_TYPE_AUDIO));
-        if (!tracksEnded) {
-          extractorOutput.endTracks();
-          tracksEnded = true;
-        }
-      }
+    if (tagType == TAG_TYPE_AUDIO && audioReader != null) {
       ensureReadyForMediaOutput();
       wasSampleOutput = audioReader.consume(prepareTagData(input), timestampUs);
-    } else if (tagType == TAG_TYPE_VIDEO) {
-      if (videoReader == null) {
-        videoReader = new VideoTagPayloadReader(extractorOutput.track(TAG_TYPE_VIDEO, C.TRACK_TYPE_VIDEO));
-        if (!tracksEnded) {
-          extractorOutput.endTracks();
-          tracksEnded = true;
-        }
-      }
+    } else if (tagType == TAG_TYPE_VIDEO && videoReader != null) {
       ensureReadyForMediaOutput();
       wasSampleOutput = videoReader.consume(prepareTagData(input), timestampUs);
     } else if (tagType == TAG_TYPE_SCRIPT_DATA && !outputSeekMap) {
