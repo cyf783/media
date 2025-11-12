@@ -403,7 +403,12 @@ public final class SsaParser implements SubtitleParser {
       float dialogueMarginVertical,
       float screenWidth,
       float screenHeight) {
-    SpannableString spannableText = new SpannableString(text.length() > 512 ? "" : text);
+
+    if (text.startsWith("m ") || text.startsWith("M ")) {
+      text = "";
+    }
+
+    SpannableString spannableText = new SpannableString(text);
     Cue.Builder cue = new Cue.Builder().setText(spannableText).setZIndex(layer);
 
     @SsaStyle.SsaAlignment int alignment;
