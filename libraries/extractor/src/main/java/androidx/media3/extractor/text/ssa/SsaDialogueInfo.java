@@ -1,6 +1,6 @@
 package androidx.media3.extractor.text.ssa;
 
-final class SsaDialogueInfo {
+final class SsaDialogueInfo implements Comparable<SsaDialogueInfo> {
 
   public final long startTimeUs;
   public final long endTimeUs;
@@ -20,5 +20,10 @@ final class SsaDialogueInfo {
     this.marginLeft = marginLeft;
     this.marginRight = marginRight;
     this.marginVertical = marginVertical;
+  }
+
+  @Override
+  public int compareTo(SsaDialogueInfo other) {
+    return Long.compare(this.startTimeUs, other.startTimeUs);
   }
 }

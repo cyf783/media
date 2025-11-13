@@ -43,8 +43,10 @@ import com.google.common.base.Ascii;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -359,7 +361,7 @@ public final class SsaParser implements SubtitleParser {
   }
 
   private void processCues(List<SsaDialogueInfo> dialogues, List<List<Cue>> cues, List<Long> cueTimesUs) {
-    dialogues.sort(Comparator.comparingLong(d -> d.startTimeUs));
+    Collections.sort(dialogues);
     Map<Long, Float> activeBottomStackingHeight = new HashMap<>();
     float REQUIRED_SPACING = 3f;
     for (SsaDialogueInfo dialogue : dialogues) {
@@ -372,7 +374,13 @@ public final class SsaParser implements SubtitleParser {
       float marginVertical = dialogue.marginVertical;
       if (SsaStyle.hasBottomAlignment(style)) {
         long startTime = dialogue.startTimeUs;
-        activeBottomStackingHeight.entrySet().removeIf(entry -> entry.getKey() <= startTime);
+        Iterator<Map.Entry<Long, Float>> iterator = activeBottomStackingHeight.entrySet().iterator();
+        while (iterator.hasNext()) {
+          Map.Entry<Long, Float> entry = iterator.next();
+          if (entry.getKey() <= startTime) {
+            iterator.remove();
+          }
+        }
         float currentMaxBottomHeight = 0f;
         for (float height : activeBottomStackingHeight.values()) {
           currentMaxBottomHeight = Math.max(currentMaxBottomHeight, height);
@@ -396,6 +404,8 @@ public final class SsaParser implements SubtitleParser {
             .replace("\\N", "\n")
             .replace("\\n", "\n")
             .replace("\\h", "\u00A0");
+    boolean svgPath = text.startsWith("m ") || text.startsWith("M ");
+    if (svgPath) text = "";
     return createCue(
         text,
         dialogue.layer,
@@ -446,11 +456,6 @@ public final class SsaParser implements SubtitleParser {
       float dialogueMarginVertical,
       float screenWidth,
       float screenHeight) {
-
-    if (text.startsWith("m ") || text.startsWith("M ")) {
-      text = "";
-    }
-
     SpannableString spannableText = new SpannableString(text);
     Cue.Builder cue = new Cue.Builder().setText(spannableText).setZIndex(layer);
 
