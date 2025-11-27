@@ -3,7 +3,6 @@ package androidx.media3.extractor.ts;
 import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR;
 
-import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -13,48 +12,55 @@ import androidx.media3.extractor.TrackOutput;
 import androidx.media3.extractor.ts.TsPayloadReader.TrackIdGenerator;
 
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 public final class PgsReader implements ElementaryStreamReader {
 
+  private static final int SIGNATURE_WORD = 0x5047;
+  private static final int SIGNATURE_BYTE_1 = SIGNATURE_WORD >> 8 & 0xff;
+  private static final int SIGNATURE_BYTE_2 = SIGNATURE_WORD & 0xff;
   private static final int SIGNATURE_LENGTH = 2;
 
+  private static final int SECTION_NULL = -1;
+  private static final int SECTION_PTS_DTS = 0;
+  private static final int SECTION_PTS_DTS_SIZE = 8;
   private static final int SECTION_TYPE_PALETTE = 0x14;
   private static final int SECTION_TYPE_BITMAP_PICTURE = 0x15;
   private static final int SECTION_TYPE_IDENTIFIER = 0x16;
   private static final int SECTION_TYPE_WINDOW_DEF = 0x17;
   private static final int SECTION_TYPE_END = 0x80;
-  private static final int SECTION_TYPE_PTS_DTS = 0x00;
-  private static final int SECTION_PTS_DTS_SIZE = 8;
 
-  private static final int STATE_SKIP_SIGNATURE = 0;
-  private static final int STATE_EXPECT_SECTION_HEADER = 1;
-  private static final int STATE_CONSUME_SECTION_DATA = 2;
-  private static final int STATE_PACKET_FINISHED = 3;
-
-  private final @Nullable String language;
-  private final @C.RoleFlags int roleFlags;
-
+  @Nullable
+  private final String language;
   private @MonotonicNonNull TrackOutput output;
-  private boolean packageGoodToGo;
-  private long sampleTimeUs;
-  private int sectionBytesToRead;
-  private int sampleBytesWritten;
-  private int sectionType;
-  private int state;
 
-  public PgsReader(@Nullable String language, @C.RoleFlags int roleFlags) {
+  private static final int STATE_EXPECT_NEXT = -1;
+  private static final int STATE_SECTION_TYPE_READ = 0;
+  private static final int STATE_SECTION_SIZE_FIRST_BYTE_READ = 1;
+  private static final int STATE_SECTION_BYTES_COUNTDOWN = 2;
+
+  private int stateOfReading;
+  private int sectionType;
+  private int sectionBytesToRead;
+  private int firstByteOfSectionSize;
+  private int sigBytesToCheck;
+  private int sampleBytesWritten;
+  private long sampleTimeUs;
+  private boolean packageGoodToGo;
+
+  public PgsReader(@Nullable String language) {
+    stateOfReading = -1;
+    sectionType = SECTION_NULL;
+    sectionBytesToRead = -1;
     this.language = language;
-    this.roleFlags = roleFlags;
-    this.packageGoodToGo = false;
-    this.sampleTimeUs = C.TIME_UNSET;
-    this.state = STATE_SKIP_SIGNATURE;
+    sampleBytesWritten = 0;
+    sampleTimeUs = C.TIME_UNSET;
   }
 
   @Override
   public void seek() {
     packageGoodToGo = false;
     sampleTimeUs = C.TIME_UNSET;
-    state = STATE_SKIP_SIGNATURE;
   }
 
   @Override
@@ -66,7 +72,6 @@ public final class PgsReader implements ElementaryStreamReader {
             .setId(idGenerator.getFormatId())
             .setSampleMimeType(MimeTypes.APPLICATION_PGS)
             .setLanguage(language)
-            .setRoleFlags(roleFlags)
             .setCueReplacementBehavior(Format.CUE_REPLACEMENT_BEHAVIOR_REPLACE)
             .build());
   }
@@ -77,83 +82,90 @@ public final class PgsReader implements ElementaryStreamReader {
       return;
     }
     packageGoodToGo = true;
-    sampleTimeUs = pesTimeUs;
-    sampleBytesWritten = 0;
-    state = STATE_SKIP_SIGNATURE;
-  }
-
-  @Override
-  public void consume(ParsableByteArray data) {
-    if (output == null || !packageGoodToGo) {
-      return;
+    if (sampleTimeUs == C.TIME_UNSET) {
+      sampleTimeUs = pesTimeUs;
     }
-    int bytesAvailable = data.bytesLeft();
-    output.sampleData(data, bytesAvailable);
-    sampleBytesWritten += bytesAvailable;
-    goThrough(data);
+    sigBytesToCheck = 0;
   }
 
   @Override
   public void packetFinished(boolean isEndOfInput) {
     if (packageGoodToGo) {
       checkState(sampleTimeUs != C.TIME_UNSET);
-      if (state == STATE_PACKET_FINISHED) {
+      if (stateOfReading == STATE_EXPECT_NEXT && sectionType == SECTION_TYPE_END) {
         output.sampleMetadata(sampleTimeUs, C.BUFFER_FLAG_KEY_FRAME, sampleBytesWritten, 0, null);
+        sampleBytesWritten = 0;
         sampleTimeUs = C.TIME_UNSET;
       }
       packageGoodToGo = false;
     }
   }
 
-  private void goThrough(ParsableByteArray data) {
-    while (data.bytesLeft() > 0) {
-      switch (state) {
-        case STATE_SKIP_SIGNATURE:
-          if (data.bytesLeft() < SIGNATURE_LENGTH) {
-            return;
-          }
-          data.skipBytes(SIGNATURE_LENGTH);
-          sectionType = SECTION_TYPE_PTS_DTS;
+  @Override
+  public void consume(ParsableByteArray data) {
+    if (packageGoodToGo) {
+      if (sigBytesToCheck == SIGNATURE_LENGTH && !checkNextByte(data, SIGNATURE_BYTE_1)) {
+        return;
+      }
+      if (sigBytesToCheck == SIGNATURE_LENGTH - 1) {
+        if (checkNextByte(data, SIGNATURE_BYTE_2)) {
+          stateOfReading = STATE_SECTION_BYTES_COUNTDOWN;
+          sectionType = SECTION_PTS_DTS;
           sectionBytesToRead = SECTION_PTS_DTS_SIZE;
-          state = STATE_CONSUME_SECTION_DATA;
+        } else {
+          return;
+        }
+      }
+      goThrough(data);
+      int bytesAvailable = data.bytesLeft();
+      output.sampleData(data, bytesAvailable);
+      sampleBytesWritten += bytesAvailable;
+    }
+  }
+
+  private boolean checkNextByte(ParsableByteArray data, int expectedValue) {
+    if (data.bytesLeft() == 0) {
+      return false;
+    }
+    if (data.readUnsignedByte() != expectedValue) {
+      packageGoodToGo = false;
+    }
+    sigBytesToCheck--;
+    return packageGoodToGo;
+  }
+
+  private void goThrough(ParsableByteArray array) {
+    byte[] buffer = array.getData();
+    int position = array.getPosition();
+    int limit = array.limit();
+    while (limit - position > 0) {
+      int b = buffer[position++] & 0xff;
+      switch (stateOfReading) {
+        case STATE_EXPECT_NEXT:
+          if (b == SECTION_TYPE_IDENTIFIER || b == SECTION_TYPE_WINDOW_DEF || b == SECTION_TYPE_PALETTE || b == SECTION_TYPE_BITMAP_PICTURE || b == SECTION_TYPE_END) {
+            sectionType = b & 0xff;
+            stateOfReading = STATE_SECTION_TYPE_READ;
+          } else {
+            checkState(false);
+          }
           break;
-        case STATE_CONSUME_SECTION_DATA:
-          int bytesToSkip = Math.min(sectionBytesToRead, data.bytesLeft());
-          data.skipBytes(bytesToSkip);
-          sectionBytesToRead -= bytesToSkip;
+        case STATE_SECTION_TYPE_READ:
+          firstByteOfSectionSize = b & 0xff;
+          stateOfReading = STATE_SECTION_SIZE_FIRST_BYTE_READ;
+          break;
+        case STATE_SECTION_SIZE_FIRST_BYTE_READ:
+          sectionBytesToRead = (firstByteOfSectionSize & 0xff) << 8 | (b & 0xff);
+          stateOfReading = sectionBytesToRead == 0 ? STATE_EXPECT_NEXT : STATE_SECTION_BYTES_COUNTDOWN;
+          break;
+        case STATE_SECTION_BYTES_COUNTDOWN:
+          sectionBytesToRead--;
+          int bytesToRead = Math.min(sectionBytesToRead, limit - position);
+          position += bytesToRead;
+          sectionBytesToRead -= bytesToRead;
           if (sectionBytesToRead == 0) {
-            if (sectionType == SECTION_TYPE_END) {
-              state = STATE_PACKET_FINISHED;
-              return;
-            }
-            state = STATE_EXPECT_SECTION_HEADER;
+            stateOfReading = STATE_EXPECT_NEXT;
           }
-          return;
-        case STATE_EXPECT_SECTION_HEADER:
-          if (data.bytesLeft() < 3) {
-            return;
-          }
-          sectionType = data.readUnsignedByte();
-          sectionBytesToRead = data.readUnsignedShort();
-          if (sectionType == SECTION_TYPE_END) {
-            state = STATE_PACKET_FINISHED;
-            return;
-          }
-          if (sectionType != SECTION_TYPE_IDENTIFIER
-              && sectionType != SECTION_TYPE_WINDOW_DEF
-              && sectionType != SECTION_TYPE_PALETTE
-              && sectionType != SECTION_TYPE_BITMAP_PICTURE) {
-            packageGoodToGo = false;
-            return;
-          }
-          state = STATE_CONSUME_SECTION_DATA;
           break;
-        case STATE_PACKET_FINISHED:
-          data.skipBytes(data.bytesLeft());
-          return;
-        default:
-          packageGoodToGo = false;
-          return;
       }
     }
   }
