@@ -27,10 +27,10 @@ public final class HlsAdsParser {
   private static final int MIN_PREFIX_LENGTH_TO_TEST = 5;
   private static final int SEQUENCE_NUMBER_RESERVED_LENGTH = 4;
 
-  private static final int AD_BREAK_THRESHOLD_SHORT = 2;
-  private static final int AD_BREAK_THRESHOLD_MEDIUM = 3;
-  private static final int AD_BREAK_THRESHOLD_LONG = 4;
-  private static final int AD_BREAK_THRESHOLD_EXTRA = 5;
+  private static final int AD_BREAK_THRESHOLD_SHORT = 3;
+  private static final int AD_BREAK_THRESHOLD_MEDIUM = 4;
+  private static final int AD_BREAK_THRESHOLD_LONG = 5;
+  private static final int AD_BREAK_THRESHOLD_EXTRA = 6;
 
   private static final double MIN_MAJORITY_GROUP_RATIO = 0.85;
   private static final double AD_BLOCK_SIZE_RATIO = 0.75;
