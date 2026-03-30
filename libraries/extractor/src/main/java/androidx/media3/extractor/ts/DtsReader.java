@@ -22,6 +22,7 @@ import static java.lang.Math.min;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
@@ -94,8 +95,13 @@ public final class DtsReader implements ElementaryStreamReader {
 
   // Used when reading the samples.
   private long timeUs;
+  private int xllXScanAccum;
+  private int xllXScanCountdown;
   private int pendingCoreSampleSize;
   private int corePostSyncCheckCount;
+  private boolean xllXScanDone;
+  private boolean xllXConfirmed;
+  private boolean xllXScanPending;
   private boolean skipExtssUntilCore;
   private boolean combiningCoreAndExss;
   private boolean coreFormatPendingEmit;
@@ -131,8 +137,11 @@ public final class DtsReader implements ElementaryStreamReader {
     syncBytes = 0;
     timeUs = C.TIME_UNSET;
     uhdAudioChunkId.set(0);
+    xllXScanAccum = 0;
+    xllXScanCountdown = 0;
     pendingCoreSampleSize = 0;
     corePostSyncCheckCount = 0;
+    xllXScanPending = false;
     combiningCoreAndExss = false;
     coreFormatPendingEmit = false;
     skipExtssUntilCore = (coreSampleRate != 0);
@@ -221,6 +230,9 @@ public final class DtsReader implements ElementaryStreamReader {
           break;
         case STATE_READING_SAMPLE:
           int bytesToRead = min(data.bytesLeft(), sampleSize - bytesRead);
+          if (xllXScanPending) {
+            scanForXllX(data.getData(), data.getPosition(), bytesToRead);
+          }
           output.sampleData(data, bytesToRead);
           bytesRead += bytesToRead;
           if (bytesRead == sampleSize) {
@@ -359,6 +371,7 @@ public final class DtsReader implements ElementaryStreamReader {
     }
     sampleSize = pendingCoreSampleSize + exssHeader.frameSize;
     bytesRead = pendingCoreSampleSize + extensionSubstreamHeaderSize;
+    maybeStartXllXScan(exssHeader.mimeType, exssHeader.frameSize - extensionSubstreamHeaderSize);
   }
 
   /**
@@ -430,6 +443,52 @@ public final class DtsReader implements ElementaryStreamReader {
     if (dtsHeader.frameDurationUs != C.TIME_UNSET) {
       sampleDurationUs = dtsHeader.frameDurationUs;
     }
+    maybeStartXllXScan(dtsHeader.mimeType, sampleSize - extensionSubstreamHeaderSize);
+  }
+
+  /**
+   * Arms the XLL-X payload scanner if this is the first DTS-HD MA EXTSS frame seen and the scan
+   * has not yet completed. The scanner will identify whether the stream carries embedded DTS:X
+   * (XLL-X) object audio by looking for the XLL-X sync word during {@link #STATE_READING_SAMPLE}.
+   *
+   * @param mimeType    The MIME type resolved from the EXTSS header.
+   * @param payloadSize The byte length of the XLL payload (frame size minus header size).
+   */
+  private void maybeStartXllXScan(String mimeType, int payloadSize) {
+    if (!xllXScanDone && MimeTypes.AUDIO_DTS_MA.equals(mimeType) && payloadSize > 0) {
+      xllXScanPending = true;
+      xllXScanAccum = 0;
+      xllXScanCountdown = min(payloadSize, DtsUtil.XLL_X_SCAN_MAX_BYTES);
+    }
+  }
+
+  /**
+   * Scans {@code len} bytes starting at {@code raw[pos]} for the XLL-X (DTS:X) sync word, feeding
+   * bytes into the rolling accumulator {@link #xllXScanAccum}. On match, upgrades the track format
+   * to {@link MimeTypes#AUDIO_DTS_X} and marks the scan complete. If the scan budget is exhausted
+   * without a match, also marks the scan complete.
+   */
+  @RequiresNonNull("output")
+  private void scanForXllX(byte[] raw, int pos, int scanLen) {
+    int len = min(scanLen, xllXScanCountdown);
+    for (int i = 0; i < len; i++) {
+      xllXScanAccum = (xllXScanAccum << 8) | (raw[pos + i] & 0xFF);
+      if (DtsUtil.matchesXllXSyncWord(xllXScanAccum)) {
+        xllXScanDone = true;
+        xllXConfirmed = true;
+        xllXScanPending = false;
+        if (format != null && !MimeTypes.AUDIO_DTS_X.equals(format.sampleMimeType)) {
+          format = format.buildUpon().setSampleMimeType(MimeTypes.AUDIO_DTS_X).build();
+          output.format(format);
+        }
+        return;
+      }
+    }
+    xllXScanCountdown -= len;
+    if (xllXScanCountdown <= 0) {
+      xllXScanPending = false;
+      xllXScanDone = true;
+    }
   }
 
   /** Parses the UHD frame header. */
@@ -452,17 +511,21 @@ public final class DtsReader implements ElementaryStreamReader {
     if (dtsHeader.sampleRate == C.RATE_UNSET_INT || dtsHeader.channelCount == C.LENGTH_UNSET) {
       return;
     }
+    String sampleMimeType =
+        (xllXConfirmed && MimeTypes.AUDIO_DTS_MA.equals(dtsHeader.mimeType))
+            ? MimeTypes.AUDIO_DTS_X
+            : dtsHeader.mimeType;
     if (format == null
         || dtsHeader.channelCount != format.channelCount
         || dtsHeader.sampleRate != format.sampleRate
-        || !Objects.equals(dtsHeader.mimeType, format.sampleMimeType)) {
+        || !Objects.equals(sampleMimeType, format.sampleMimeType)) {
       Format.Builder formatBuilder = format == null ? new Format.Builder() : format.buildUpon();
       int resolvedBitrate = dtsHeader.bitrate > 0 ? dtsHeader.bitrate : Format.NO_VALUE;
       format =
           formatBuilder
               .setId(formatId)
+              .setSampleMimeType(sampleMimeType)
               .setContainerMimeType(containerMimeType)
-              .setSampleMimeType(dtsHeader.mimeType)
               .setChannelCount(dtsHeader.channelCount)
               .setSampleRate(dtsHeader.sampleRate)
               .setAverageBitrate(resolvedBitrate)
