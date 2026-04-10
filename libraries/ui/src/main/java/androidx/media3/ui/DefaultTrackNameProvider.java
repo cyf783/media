@@ -21,6 +21,7 @@ import android.content.res.Resources;
 import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
@@ -296,7 +297,7 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
       case MimeTypes.VIDEO_APV:
         return "APV";
       case MimeTypes.VIDEO_AV1:
-        return "AV1";
+        return joinWithSeparator("AV1", buildHdrTypeString(format));
       case MimeTypes.VIDEO_AVI:
         return "AVI";
       case MimeTypes.VIDEO_DIVX:
@@ -308,9 +309,9 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
       case MimeTypes.VIDEO_H263:
         return "H.263";
       case MimeTypes.VIDEO_H264:
-        return "H.264";
+        return joinWithSeparator("H.264", buildHdrTypeString(format));
       case MimeTypes.VIDEO_H265:
-        return "H.265";
+        return joinWithSeparator("H.265", buildHdrTypeString(format));
       case MimeTypes.VIDEO_H266:
         return "H.266";
       case MimeTypes.VIDEO_MJPEG:
@@ -342,7 +343,7 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
       case MimeTypes.VIDEO_VP8:
         return "VP8";
       case MimeTypes.VIDEO_VP9:
-        return "VP9";
+        return joinWithSeparator("VP9", buildHdrTypeString(format));
       case MimeTypes.VIDEO_WMV:
         return "WMV";
       case MimeTypes.VIDEO_WMV1:
@@ -417,5 +418,19 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
       }
     }
     return "Dolby Vision";
+  }
+
+  private static String buildHdrTypeString(Format format) {
+    @Nullable ColorInfo colorInfo = format.colorInfo;
+    if (colorInfo == null) {
+      return "";
+    }
+    if (colorInfo.colorTransfer == C.COLOR_TRANSFER_HLG) {
+      return "HLG";
+    }
+    if (colorInfo.colorTransfer == C.COLOR_TRANSFER_ST2084) {
+      return "HDR10";
+    }
+    return "";
   }
 }
