@@ -99,7 +99,17 @@ public final class BundledHlsMediaChunkExtractor implements HlsMediaChunkExtract
 
   @Override
   public boolean read(ExtractorInput extractorInput) throws IOException {
-    return extractor.read(extractorInput, POSITION_HOLDER) == Extractor.RESULT_CONTINUE;
+    // TVBOX  来自海阔的：修复真不卡等网站播放中断的问题 ---start
+    //return extractor.read(extractorInput, POSITION_HOLDER) == Extractor.RESULT_CONTINUE;
+    try {
+      return extractor.read(extractorInput, POSITION_HOLDER) == Extractor.RESULT_CONTINUE;
+    } catch (IOException e) {
+      if(e instanceof ParserException){
+        return false;
+      }
+      throw e;
+    }
+    // TVBOX  来自海阔的：修复真不卡等网站播放中断的问题 ---end
   }
 
   @Override

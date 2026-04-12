@@ -400,6 +400,10 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
     @Nullable String rangeHeader = buildRangeRequestHeader(position, length);
     if (rangeHeader != null) {
       builder.addHeader(HttpHeaders.RANGE, rangeHeader);
+      // TVBOX  支持荐片 -- start
+    }else{
+      builder.addHeader(HttpHeaders.RANGE, "bytes=0-");
+      // TVBOX  支持荐片 -- end
     }
     if (userAgent != null) {
       builder.addHeader(HttpHeaders.USER_AGENT, userAgent);
@@ -517,14 +521,30 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
       readLength = (int) min(readLength, bytesRemaining);
     }
 
-    int read = castNonNull(responseByteStream).read(buffer, offset, readLength);
-    if (read == -1) {
+    // TVBOX GO代理时可能出现计算异常 -- start1
+//    int read = castNonNull(responseByteStream).read(buffer, offset, readLength);
+//    if (read == -1) {
+//      return C.RESULT_END_OF_INPUT;
+//    }
+//
+//    bytesRead += read;
+//    bytesTransferred(read);
+//    return read;
+    // TVBOX GO代理时可能出现计算异常 -- end1
+    // TVBOX GO代理时可能出现计算异常 -- start2
+    try {
+      int read = castNonNull(responseByteStream).read(buffer, offset, readLength);
+      if (read == -1) {
+        return C.RESULT_END_OF_INPUT;
+      }
+
+      bytesRead += read;
+      bytesTransferred(read);
+      return read;
+    }catch (Exception e){
       return C.RESULT_END_OF_INPUT;
     }
-
-    bytesRead += read;
-    bytesTransferred(read);
-    return read;
+    // TVBOX GO代理时可能出现计算异常 -- end2
   }
 
   /** Closes the current connection quietly, if there is one. */

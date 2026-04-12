@@ -668,9 +668,12 @@ public class SampleQueue implements TrackOutput {
       int size,
       int offset,
       @Nullable CryptoData cryptoData) {
-    if (upstreamFormatAdjustmentRequired) {
-      format(checkNotNull(unadjustedUpstreamFormat));
-    }
+    // TVBOX 某些hls不存在format  --start
+    // 暂时删除，待完善
+//    if (upstreamFormatAdjustmentRequired) {
+//      format(checkNotNull(unadjustedUpstreamFormat));
+//    }
+    // TVBOX 某些hls不存在format  --end
 
     boolean isKeyframe = (flags & C.BUFFER_FLAG_KEY_FRAME) != 0;
     if (upstreamKeyframeRequired) {

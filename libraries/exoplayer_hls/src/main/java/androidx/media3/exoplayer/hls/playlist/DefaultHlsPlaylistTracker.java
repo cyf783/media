@@ -273,6 +273,11 @@ public final class DefaultHlsPlaylistTracker
 
   @Override
   public void maybeThrowPlaylistRefreshError(Uri url) throws IOException {
+    // TVBOX  来自海阔的：修复真不卡等网站播放中断的问题 ---start
+    if (!isLive) {
+      return;
+    }
+    // TVBOX  来自海阔的：修复真不卡等网站播放中断的问题 ---end
     @Nullable RedundantGroupBundle bundle = redundantGroupBundles.get(url);
     if (bundle != null) {
       bundle.maybeThrowPlaylistRefreshError(url);
