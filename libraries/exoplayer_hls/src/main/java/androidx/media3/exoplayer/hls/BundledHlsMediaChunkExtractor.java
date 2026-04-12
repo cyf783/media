@@ -19,7 +19,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.Format;
-import androidx.media3.common.util.TimestampAdjuster;
+import androidx.media3.common.ParserException;import androidx.media3.common.util.TimestampAdjuster;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;

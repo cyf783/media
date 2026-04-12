@@ -13,12 +13,12 @@
 // limitations under the License.
 buildscript {
     repositories {
+        google()
+        mavenCentral()
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/google' }
         maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         maven { url 'https://maven.pkg.jetbrains.space/public/p/compose/dev' }
-        google()
-        mavenCentral()
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.12.3'
@@ -30,10 +30,6 @@ buildscript {
 }
 allprojects {
     repositories {
-        maven { url 'https://maven.aliyun.com/repository/central' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://developer.huawei.com/repo/'}
         google()
         mavenCentral()
         maven {
@@ -42,6 +38,10 @@ allprojects {
                 includeGroup "com.github.philburk"
             }
         }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://developer.huawei.com/repo/'}
     }
     if (it.hasProperty('externalBuildDir')) {
         if (!new File(externalBuildDir).isAbsolute()) {
