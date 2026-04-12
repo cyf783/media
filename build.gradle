@@ -13,6 +13,10 @@
 // limitations under the License.
 buildscript {
     repositories {
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.pkg.jetbrains.space/public/p/compose/dev' }
         google()
         mavenCentral()
     }
@@ -26,6 +30,10 @@ buildscript {
 }
 allprojects {
     repositories {
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://developer.huawei.com/repo/'}
         google()
         mavenCentral()
         maven {
