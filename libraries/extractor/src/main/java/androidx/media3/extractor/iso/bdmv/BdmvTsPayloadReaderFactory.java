@@ -135,12 +135,6 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
     return type != null ? type : 0;
   }
 
-  @NonNull
-  @Override
-  public SparseArray<TsPayloadReader> createInitialPayloadReaders() {
-    return new SparseArray<>();
-  }
-
   public int getDvMdCompression() {
     return dvMdCompression;
   }
@@ -157,8 +151,14 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
     return dvLevel;
   }
 
-  public boolean isDualLayerDv() {
-    return dvProfile == 4 || dvProfile == 7;
+  public boolean isDvElPid(int pid) {
+    return (dvProfile == 4 || dvProfile == 7) && getDynamicRangeTypeForPid(pid) == BdmvConstants.DYNAMIC_RANGE_DOLBY_VISION;
+  }
+
+  @NonNull
+  @Override
+  public SparseArray<TsPayloadReader> createInitialPayloadReaders() {
+    return new SparseArray<>();
   }
 
   @Override

@@ -17,6 +17,7 @@ package androidx.media3.extractor.iso.bdmv;
 
 import androidx.annotation.NonNull;
 import androidx.media3.common.C;
+import androidx.media3.extractor.DiscardingTrackOutput;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ForwardingExtractorOutput;
 import androidx.media3.extractor.TrackOutput;
@@ -33,14 +34,17 @@ final class HdrUpgradeOutput extends ForwardingExtractorOutput {
   @NonNull
   @Override
   public TrackOutput track(int id, @C.TrackType int type) {
-    if (type == C.TRACK_TYPE_VIDEO) {
-      int dynamicRangeType = payloadReaderFactory.getDynamicRangeTypeForPid(id);
-      TrackOutput upstream = super.track(id, type);
-      if (dynamicRangeType == 0) {
-        return upstream;
-      }
-      return new HdrTrackOutput(upstream, dynamicRangeType, payloadReaderFactory);
+    if (type != C.TRACK_TYPE_VIDEO) {
+      return super.track(id, type);
     }
-    return super.track(id, type);
+    if (payloadReaderFactory.isDvElPid(id)) {
+      return new DiscardingTrackOutput();
+    }
+    int dynamicRangeType = payloadReaderFactory.getDynamicRangeTypeForPid(id);
+    TrackOutput upstream = super.track(id, type);
+    if (dynamicRangeType == 0) {
+      return upstream;
+    }
+    return new HdrTrackOutput(upstream, dynamicRangeType, payloadReaderFactory);
   }
 }

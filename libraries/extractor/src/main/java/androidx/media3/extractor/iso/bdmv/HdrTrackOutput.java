@@ -52,7 +52,7 @@ final class HdrTrackOutput extends ForwardingTrackOutput {
     builder.setColorInfo(colorBuilder.build());
   }
 
-  private static int dvLevelFromCodecs(@Nullable String codecs) {
+  static int dvLevelFromCodecs(@Nullable String codecs) {
     if (codecs == null) {
       return 9;
     }
