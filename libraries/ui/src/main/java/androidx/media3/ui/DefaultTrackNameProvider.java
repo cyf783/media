@@ -272,6 +272,8 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
         return "OGG";
       case MimeTypes.AUDIO_OPUS:
         return "Opus";
+      case MimeTypes.AUDIO_RAW:
+        return buildPcmName(format);
       case MimeTypes.AUDIO_RALF:
         return "RALF";
       case MimeTypes.AUDIO_SIPR:
@@ -399,6 +401,28 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
       }
     }
     return "AAC";
+  }
+
+  private static String buildPcmName(Format format) {
+    switch (format.pcmEncoding) {
+      case C.ENCODING_PCM_8BIT:
+        return "LPCM 8-bit";
+      case C.ENCODING_PCM_16BIT:
+      case C.ENCODING_PCM_16BIT_BIG_ENDIAN:
+        return "LPCM 16-bit";
+      case C.ENCODING_PCM_24BIT:
+      case C.ENCODING_PCM_24BIT_BIG_ENDIAN:
+        return "LPCM 24-bit";
+      case C.ENCODING_PCM_32BIT:
+      case C.ENCODING_PCM_32BIT_BIG_ENDIAN:
+        return "LPCM 32-bit";
+      case C.ENCODING_PCM_FLOAT:
+        return "PCM Float";
+      case C.ENCODING_PCM_DOUBLE:
+        return "PCM Double";
+      default:
+        return "PCM";
+    }
   }
 
   private static String buildTrueHdName(Format format) {
