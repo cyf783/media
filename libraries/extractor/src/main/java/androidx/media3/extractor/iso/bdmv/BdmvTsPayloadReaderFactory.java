@@ -18,16 +18,9 @@ package androidx.media3.extractor.iso.bdmv;
 import android.util.SparseArray;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ParsableByteArray;
-import androidx.media3.extractor.ts.Ac3Reader;
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
-import androidx.media3.extractor.ts.DtsReader;
-import androidx.media3.extractor.ts.LpcmReader;
-import androidx.media3.extractor.ts.PesReader;
-import androidx.media3.extractor.ts.TrueHdReader;
 import androidx.media3.extractor.ts.TsPayloadReader;
-import androidx.media3.extractor.ts.Vc1Reader;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.HashMap;
@@ -35,16 +28,6 @@ import java.util.Map;
 import java.util.Queue;
 
 public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory {
-
-  private static final int STREAM_TYPE_HDMV_LPCM = 0x80;
-  private static final int STREAM_TYPE_BDMV_DTS = 0x82;
-  private static final int STREAM_TYPE_BDMV_AC3_TRUE_HD = 0x83;
-  private static final int STREAM_TYPE_BDMV_EAC3 = 0x84;
-  private static final int STREAM_TYPE_BDMV_DTS_HD = 0x85;
-  private static final int STREAM_TYPE_BDMV_DTS_HD_MA = 0x86;
-  private static final int STREAM_TYPE_BDMV_EAC3_SEC = 0xA1;
-  private static final int STREAM_TYPE_BDMV_DTS_EXPRESS_SEC = 0xA2;
-  private static final int STREAM_TYPE_BDMV_VC1 = 0xEA;
 
   private static final int DESCRIPTOR_TAG_DOVI = 0xB0;
 
@@ -66,9 +49,9 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
   private static Map<Integer, Integer> buildPidDynamicRangeTypes(@Nullable ClpiInfo clpi) {
     Map<Integer, Integer> map = new HashMap<>();
     if (clpi != null) {
-      for (StreamInfo s : clpi.streams) {
-        if (s.dynamicRangeType > 0) {
-          map.put(s.pid, s.dynamicRangeType);
+      for (StreamInfo stream : clpi.streams) {
+        if (stream.dynamicRangeType > 0) {
+          map.put(stream.pid, stream.dynamicRangeType);
         }
       }
     }
@@ -81,12 +64,12 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
     }
     boolean hasDvStream = false;
     int blStreamType = 0;
-    for (StreamInfo s : clpi.streams) {
-      if (BdmvConstants.isVideoStreamType(s.streamType)) {
-        if (s.dynamicRangeType == BdmvConstants.DYNAMIC_RANGE_DOLBY_VISION) {
+    for (StreamInfo stream : clpi.streams) {
+      if (BdmvConstants.isVideoStreamType(stream.streamType)) {
+        if (stream.dynamicRangeType == BdmvConstants.DYNAMIC_RANGE_DOLBY_VISION) {
           hasDvStream = true;
         } else if (blStreamType == 0) {
-          blStreamType = s.streamType;
+          blStreamType = stream.streamType;
         }
       }
     }
@@ -99,35 +82,17 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
   private static Map<Integer, Queue<String>> buildLanguageQueues(@Nullable ClpiInfo clpi) {
     Map<Integer, Queue<String>> queues = new HashMap<>();
     if (clpi != null) {
-      for (StreamInfo s : clpi.streams) {
-        if (!s.languageCode.isEmpty()) {
-          queues.computeIfAbsent(s.streamType, k -> new ArrayDeque<>()).add(s.languageCode);
+      for (StreamInfo stream : clpi.streams) {
+        if (!stream.languageCode.isEmpty()) {
+          Queue<String> queue = queues.get(stream.streamType);
+          if (queue == null) {
+            queues.put(stream.streamType, queue = new ArrayDeque<>());
+          }
+          queue.add(stream.languageCode);
         }
       }
     }
     return queues;
-  }
-
-  @Nullable
-  private static TsPayloadReader createBdmvReader(int streamType, @Nullable String lang) {
-    switch (streamType) {
-      case STREAM_TYPE_HDMV_LPCM:
-        return new PesReader(new LpcmReader(lang, MimeTypes.VIDEO_MP2T));
-      case STREAM_TYPE_BDMV_AC3_TRUE_HD:
-        return new PesReader(new TrueHdReader(lang, MimeTypes.VIDEO_MP2T));
-      case STREAM_TYPE_BDMV_EAC3:
-      case STREAM_TYPE_BDMV_EAC3_SEC:
-        return new PesReader(new Ac3Reader(lang, 0, MimeTypes.VIDEO_MP2T));
-      case STREAM_TYPE_BDMV_DTS:
-      case STREAM_TYPE_BDMV_DTS_HD:
-      case STREAM_TYPE_BDMV_DTS_HD_MA:
-      case STREAM_TYPE_BDMV_DTS_EXPRESS_SEC:
-        return new PesReader(new DtsReader(lang, 0, 4096, MimeTypes.VIDEO_MP2T));
-      case STREAM_TYPE_BDMV_VC1:
-        return new PesReader(new Vc1Reader(MimeTypes.VIDEO_MP2T));
-      default:
-        return null;
-    }
   }
 
   public int getDynamicRangeTypeForPid(int pid) {
@@ -168,10 +133,6 @@ public final class BdmvTsPayloadReaderFactory implements TsPayloadReader.Factory
       parseDolbyVisionDescriptor(esInfo.descriptorBytes);
     }
     String lang = resolveLanguage(streamType, esInfo);
-    TsPayloadReader bdmvReader = createBdmvReader(streamType, lang);
-    if (bdmvReader != null) {
-      return bdmvReader;
-    }
     if (lang != null && (esInfo.language == null || esInfo.language.isEmpty())) {
       esInfo = new TsPayloadReader.EsInfo(esInfo.streamType, lang, esInfo.audioType, esInfo.dvbSubtitleInfos.isEmpty() ? null : esInfo.dvbSubtitleInfos, esInfo.descriptorBytes);
     }
