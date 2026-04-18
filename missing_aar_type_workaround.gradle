@@ -23,6 +23,7 @@ def addMissingAarTypeToXml(xml) {
         "junit:junit",
         "com.google.ads.interactivemedia.v3:interactivemedia",
         "com.google.guava:guava",
+        "com.hierynomus:smbj",
         "com.google.truth:truth",
         "com.google.truth.extensions:truth-java8-extension",
         "com.squareup.okhttp3:okhttp",
