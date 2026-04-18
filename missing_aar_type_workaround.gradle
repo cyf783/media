@@ -24,6 +24,7 @@ def addMissingAarTypeToXml(xml) {
         "com.github.philburk:jsyn",
         "com.google.guava:guava",
         "com.google.truth.extensions:truth-java8-extension",
+        "com.googlecode.juniversalchardet:juniversalchardet",
         "com.hierynomus:smbj",
         "com.google.truth:truth",
         "com.squareup.okhttp3:mockwebserver",
