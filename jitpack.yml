@@ -1,0 +1,17 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - echo "Starting JitPack build cleanup..."
+  - rm -rf ~/.gradle/caches/build-cache-* 2>/dev/null || true
+  - rm -rf ~/.gradle/caches/transforms-* 2>/dev/null || true
+  - rm -rf ~/.android/build-cache 2>/dev/null || true
+  - df -h
+
+install:
+  - ./gradlew publishToMavenLocal -x test -x lint -x lintVitalRelease -x androidTest -x connectedAndroidTest --no-build-cache --no-daemon --stacktrace
+
+after_install:
+  - echo "Build finished, disk usage:"
+  - df -h
+  - du -sh ~/.gradle/caches 2>/dev/null || true
