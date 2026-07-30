@@ -2,14 +2,19 @@ jdk:
   - openjdk17
 
 before_install:
-  - echo "Starting JitPack build cleanup..."
-  - rm -rf ~/.gradle/caches/build-cache-* 2>/dev/null || true
-  - rm -rf ~/.gradle/caches/transforms-* 2>/dev/null || true
-  - rm -rf ~/.android/build-cache 2>/dev/null || true
+  - echo "Starting JitPack build cleanup - initial disk usage:"
+  - df -h
+  - rm -rf ~/.gradle/caches 2>/dev/null || true
+  - rm -rf ~/.gradle/wrapper/dists/*/gradle-* 2>/dev/null || true
+  - rm -rf ~/.m2/repository 2>/dev/null || true
+  - rm -rf ~/.android/build-cache* 2>/dev/null || true
+  - rm -rf /tmp/* 2>/dev/null || true
+  - apt-get clean 2>/dev/null || true
+  - echo "Cleanup complete - remaining disk:"
   - df -h
 
 install:
-  - ./gradlew publishToMavenLocal -x test -x lint -x lintVitalRelease -x androidTest -x connectedAndroidTest --no-build-cache --no-daemon --stacktrace
+  - ./gradlew publishToMavenLocal -x test -x lint -x lintVitalRelease --no-build-cache --no-daemon --stacktrace
 
 after_install:
   - echo "Build finished, disk usage:"
